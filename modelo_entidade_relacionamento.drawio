@@ -1,0 +1,51 @@
+<mxfile host="app.diagrams.net" modified="2026-09-14T00:00:00.000Z" agent="GitHub Copilot" version="24.7.17">
+  <diagram id="modelo-er" name="Modelo ER - Plataforma WhatsApp">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="usuario" value="&lt;b&gt;USUARIO&lt;/b&gt;&lt;hr&gt;PK id_usuario : BIGINT UNSIGNED&lt;br&gt;nome : VARCHAR(120)&lt;br&gt;email : VARCHAR(254) UQ&lt;br&gt;senha_hash : VARCHAR(255)&lt;br&gt;perfil : ENUM('ADMIN','ATENDENTE')&lt;br&gt;ativo : BOOLEAN&lt;br&gt;criado_em : DATETIME&lt;br&gt;atualizado_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="260" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="contato" value="&lt;b&gt;CONTATO&lt;/b&gt;&lt;hr&gt;PK id_contato : BIGINT UNSIGNED&lt;br&gt;telefone : VARCHAR(20) UQ&lt;br&gt;nome : VARCHAR(120)&lt;br&gt;email : VARCHAR(254)&lt;br&gt;criado_em : DATETIME&lt;br&gt;atualizado_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="260" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="conversa" value="&lt;b&gt;CONVERSA&lt;/b&gt;&lt;hr&gt;PK id_conversa : BIGINT UNSIGNED&lt;br&gt;FK id_contato : BIGINT UNSIGNED&lt;br&gt;FK id_atendente : BIGINT UNSIGNED NULL&lt;br&gt;status : ENUM('ABERTA','FINALIZADA')&lt;br&gt;iniciada_em : DATETIME&lt;br&gt;finalizada_em : DATETIME NULL&lt;br&gt;reaberta_em : DATETIME NULL&lt;br&gt;atualizada_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="430" y="250" width="290" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="mensagem" value="&lt;b&gt;MENSAGEM&lt;/b&gt;&lt;hr&gt;PK id_mensagem : BIGINT UNSIGNED&lt;br&gt;FK id_conversa : BIGINT UNSIGNED&lt;br&gt;FK id_contato : BIGINT UNSIGNED&lt;br&gt;direcao : ENUM('RECEBIDA','ENVIADA')&lt;br&gt;tipo : VARCHAR(30)&lt;br&gt;conteudo : TEXT&lt;br&gt;id_whatsapp : VARCHAR(120) UQ&lt;br&gt;enviada_em : DATETIME NULL&lt;br&gt;criada_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="80" width="280" height="240" as="geometry" />
+        </mxCell>
+        <mxCell id="nota_interna" value="&lt;b&gt;NOTA_INTERNA&lt;/b&gt;&lt;hr&gt;PK id_nota : BIGINT UNSIGNED&lt;br&gt;FK id_conversa : BIGINT UNSIGNED&lt;br&gt;FK id_autor : BIGINT UNSIGNED&lt;br&gt;conteudo : TEXT&lt;br&gt;criada_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="850" y="400" width="280" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="configuracao" value="&lt;b&gt;CONFIGURACAO_INTEGRACAO&lt;/b&gt;&lt;hr&gt;PK id_configuracao : BIGINT UNSIGNED&lt;br&gt;provedor : VARCHAR(40)&lt;br&gt;numero_whatsapp : VARCHAR(20)&lt;br&gt;token_acesso_cifrado : VARBINARY(512)&lt;br&gt;token_webhook_cifrado : VARBINARY(512)&lt;br&gt;ativo : BOOLEAN&lt;br&gt;atualizado_por : BIGINT UNSIGNED&lt;br&gt;atualizada_em : DATETIME" style="shape=table;html=1;whiteSpace=wrap;rounded=0;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;align=left;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="700" width="300" height="220" as="geometry" />
+        </mxCell>
+
+        <mxCell id="rel_usuario_conversa" value="atende (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="usuario" target="conversa">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_contato_conversa" value="possui (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="contato" target="conversa">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_conversa_mensagem" value="contém (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="conversa" target="mensagem">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_contato_mensagem" value="envia/recebe (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="contato" target="mensagem">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_conversa_nota" value="possui (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="conversa" target="nota_interna">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_usuario_nota" value="cria (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="usuario" target="nota_interna">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_usuario_configuracao" value="atualiza (1:N)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=ERone;endArrow=ERmany;startFill=0;endFill=0;" edge="1" parent="1" source="usuario" target="configuracao">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
