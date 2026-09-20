@@ -1,8 +1,8 @@
-# PI-G1
-Projeto Interdisciplinar ADS2 FatecID - Grupo 1 - Plataforma de Whatsapp Business
+# PI-G1 - InAblink
+Projeto Interdisciplinar ADS2 FatecID - Grupo 1 - Plataforma de WhatsApp Business
 
-## Modelo de dados
+## Pequenas empresas utilizam o WhatsApp como principal meio de comunicação com clientes, porém possuem dificuldade para organizar atendimentos realizados por múltiplos funcionários. A plataforma proposta centraliza contatos, mensagens e atendimentos utilizando a API oficial do WhatsApp Business
 
-O modelo entidade-relacionamento editável está em [modelo_entidade_relacionamento.drawio](modelo_entidade_relacionamento.drawio). Ele pode ser aberto e alterado no diagrams.net (draw.io).
+## 
 
-O modelo usa tipos compatíveis com MySQL e cobre usuários, contatos, conversas, mensagens, notas internas e configurações da integração. As credenciais da integração estão representadas como dados cifrados, conforme o requisito de segurança.
+
