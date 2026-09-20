@@ -3,6 +3,8 @@ Projeto Interdisciplinar ADS2 FatecID - Grupo 1 - Plataforma de WhatsApp Busines
 
 ## Pequenas empresas utilizam o WhatsApp como principal meio de comunicação com clientes, porém possuem dificuldade para organizar atendimentos realizados por múltiplos funcionários. A plataforma proposta centraliza contatos, mensagens e atendimentos utilizando a API oficial do WhatsApp Business
 
-## 
+## Backend
+
+API inicial em Node.js, Express e MySQL na pasta [`backend`](backend/README.md). Consulte o guia para configurar o banco, executar a API e usar as rotas de contatos e etiquetas.
 
 
