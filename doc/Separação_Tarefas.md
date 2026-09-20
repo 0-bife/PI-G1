@@ -15,7 +15,7 @@
 
 ## Banco de Dados
 
-# Criação TODOS JUNTOS
+##  TODOS JUNTOS ->> Criação
 
-* Manutenção: Flávia.
+* Manutenção: Flávia e quem quiser ajudar.
 
