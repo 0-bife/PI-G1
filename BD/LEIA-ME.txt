@@ -1,0 +1,51 @@
+MER — Plataforma WhatsApp Business
+
+ABERTURA
+O arquivo MER-WhatsApp-Business.xml usa o formato XML de diagramas do brModelo Desktop 3.x, não um esquema XML genérico. No brModelo, use Arquivo > Abrir e selecione o filtro XML (ou todos os arquivos). Após abrir, salve como .brM3 se desejar. Não basta renomear a extensão.
+A estrutura foi conferida com o código oficial: https://github.com/chcandido/brModelo (controlador/Diagrama.java e diagramas/conceitual/Ligacao.java). Não houve teste de abertura na interface do aplicativo. A imagem é uma prévia independente do mesmo modelo.
+
+BASE CONFIRMADA
+Documento Projeto PI ADS 2 - Plataforma WhatsApp Business; uma empresa; um número; etiquetas em contatos e conversas; histórico de atribuições; chatbot externo inicialmente.
+
+REGRAS CONFIRMADAS E DETALHAMENTO PROPOSTO
+1. Confirmado: cada contato pode ter zero ou uma conversa persistente neste único número. Cada conversa pertence a exatamente um contato. Cada novo ciclo de atendimento gera ATENDIMENTO, sem apagar a conversa.
+2. Confirmado: cada atendimento pode ter vários responsáveis ativos simultaneamente, priorizando o último a acompanhar. Cada atribuição pertence a um atendimento e a um usuário. Uma atribuição está ativa enquanto encerrada_em estiver vazia. Adicionar um responsável não encerra automaticamente as atribuições dos demais. A cardinalidade (0,n) de ATENDIMENTO para ATRIBUICAO permanece válida.
+   Confirmado: acompanhar significa adicionar à conversa a própria tag com o nome do atendente. Essa tag é a representação visual de ATRIBUICAO, vinculada ao USUARIO e ao ATENDIMENTO daquela CONVERSA; não é uma etiqueta geral duplicada em ETIQUETA. Adicionar a tag cria a atribuição e registra iniciada_em. Remover a tag preenche encerrada_em, retirando o responsável ativo sem apagar o histórico. Entre as atribuições ativas, a de iniciada_em mais recente tem prioridade. Remover a tag prioritária faz a prioridade recair sobre a mais recente entre as restantes; sem tags ativas, não há responsável ativo. Recolocar a tag após removê-la cria outra atribuição e preserva a anterior. Responder, abrir a conversa ou adicionar anotações não altera a prioridade por si só. O campo ultimo_acompanhamento_em foi removido por ser desnecessário para essa regra.
+   Detalhamento proposto para implementação: impedir duas atribuições ativas do mesmo usuário ao mesmo atendimento; tentar adicionar uma tag já ativa não cria nova atribuição nem altera a prioridade. Em empate exato de data/hora, usar a ordem de inclusão registrada no banco para desempate. Essas regras devem ser implementadas no modelo lógico/aplicação; o MER sozinho não as impõe.
+3. As anotações internas pertencem à conversa e têm um usuário autor obrigatório. Não são mensagens enviadas ao cliente.
+4. USUARIO significa funcionário com acesso ao sistema; CONTATO significa pessoa atendida. Não foram inventadas tabelas de perfis ou permissões: os níveis de acesso ainda precisam ser definidos pelo grupo.
+5. Mensagens pertencem à conversa. A relação envia identifica zero ou um usuário: obrigatória para envio manual; ausente para mensagens recebidas ou do chatbot. O atributo origem distingue contato, usuário e chatbot. A condição deve ser validada na aplicação/banco lógico.
+6. Propõe-se guardar o status atual da mensagem e do atendimento como atributos, não como entidades independentes. O histórico de mensagens e de atribuições está contemplado; auditoria de cada mudança de status não foi especificada.
+7. prazo_retorno é opcional e apoia o acompanhamento de atrasos. Alertas e métricas do dashboard podem ser calculados sem entidades próprias.
+
+ENTIDADES E ATRIBUTOS
+CONTATO: id_contato (identificador), nome, telefone, email opcional, cadastrado_em.
+CONVERSA: id_conversa (identificador), criada_em.
+MENSAGEM: id_mensagem (identificador), id_externo opcional, conteudo opcional, tipo, origem, status, data_hora, referencia_midia opcional.
+ATENDIMENTO: id_atendimento (identificador), iniciado_em, encerrado_em opcional, status, prazo_retorno opcional.
+ATRIBUICAO: id_atribuicao (identificador), iniciada_em (adição da tag pessoal), encerrada_em opcional (remoção da tag pessoal).
+USUARIO: id_usuario (identificador), nome, email, hash_senha, ativo.
+ANOTACAO_INTERNA: id_anotacao (identificador), texto, criada_em.
+ETIQUETA: id_etiqueta (identificador), nome, cor opcional.
+
+RELACIONAMENTOS — PARTICIPAÇÃO POR ENTIDADE
+CONTATO (0,1) — possui — CONVERSA (1,1).
+CONTATO (0,n) — classifica — ETIQUETA (0,n).
+ETIQUETA (0,n) — marca — CONVERSA (0,n).
+CONVERSA (0,n) — contem — MENSAGEM (1,1).
+CONVERSA (0,n) — registra — ANOTACAO_INTERNA (1,1).
+CONVERSA (0,n) — origina — ATENDIMENTO (1,1).
+USUARIO (0,n) — envia — MENSAGEM (0,1).
+USUARIO (0,n) — escreve — ANOTACAO_INTERNA (1,1).
+ATENDIMENTO (0,n) — recebe — ATRIBUICAO (1,1).
+USUARIO (0,n) — assume — ATRIBUICAO (1,1).
+
+NOTAS CONCEITUAIS
+As duas relações de etiquetas são N:N; as tabelas associativas aparecem na conversão para o modelo lógico. Não se desenham chaves estrangeiras como atributos nesta proposta conceitual.
+Não há entidade EMPRESA nem CONTA_WHATSAPP porque o escopo é uma empresa e um número. Não há entidade CHATBOT; suas mensagens podem ser guardadas em MENSAGEM com origem adequada.
+Pedidos, produtos e vagas são assuntos citados no contexto de atendimento, não cadastros exigidos pelo documento; portanto não foram incluídos como entidades.
+Propõem-se telefone do contato, email do usuário e id_externo da mensagem (quando presente) como únicos no modelo lógico. A nulidade de conteúdo admite mídia; toda mensagem deve ter conteúdo ou referência válida de mídia, segundo seu tipo.
+Senhas devem ser armazenadas como hash, nunca em texto puro. Este MER não implementa por si só criptografia, autorização, retenção de dados ou conformidade com LGPD.
+
+COBERTURA
+RF1/RF2: USUARIO; RF3: CONTATO; RF4: CONVERSA; RF5/RF6: MENSAGEM; RF7: ATENDIMENTO/ATRIBUICAO; RF8: atributos de status; RF9/RF10: consultas sobre o modelo; RF11: integração externa e origem de mensagem; RF12: ANOTACAO_INTERNA.
