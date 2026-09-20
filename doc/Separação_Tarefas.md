@@ -1,21 +1,21 @@
-### Divisão de Tarefas
+# Divisão de Tarefas
 
-## Documentação: 
+### Documentação: 
 
 * Clara e Isabely - Documentar no Google Docs
 * Rubens - GitHub
 
-## Backend:
+### Backend:
 
 * Flávia e Rubens - fazer o principal;
 
-## Frontend:
+### Frontend:
 
 * Clara e Isabely - Fazer a parte do front com HTML, CSS, JS/TS e React
 
-## Banco de Dados
+### Banco de Dados
 
-##  TODOS JUNTOS ->> Criação
+##3  TODOS JUNTOS ->> Criação
 
 * Manutenção: Flávia e quem quiser ajudar.
 
