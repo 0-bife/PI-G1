@@ -23,7 +23,7 @@ CREATE TABLE CONVERSA (
 
 CREATE TABLE MENSAGEM (
     data_hora TIMESTAMP,
-    conteudo VARCHAR(255),
+    conteudo VARCHAR(2048), -- alterado para 2048 caracteres
     origem VARCHAR(255),
     status VARCHAR(255),
     referencia_midia VARCHAR(255),
