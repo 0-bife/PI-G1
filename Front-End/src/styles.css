@@ -657,13 +657,47 @@ select {
   display: flex;
   gap: 6px;
 }
+/* Área onde aparecem todas as mensagens da conversa.
+   O flex organiza os balões verticalmente, um abaixo do outro. */
 .messages {
   flex: 1;
   overflow: auto;
- padding: 20px 45px;
-  background-image: radial-gradient(#d9d4c2 0.7px, transparent 0.7px);
+  padding: 20px 45px;
+
+  display: flex;
+  flex-direction: column;
+
+  /* Cria o fundo pontilhado da área de conversa. */
+  background-image: radial-gradient(
+    #d9d4c2 0.7px,
+    transparent 0.7px
+  );
   background-size: 17px 17px;
 }
+/* Estilo base dos balões das mensagens do chat.
+   Define o tamanho, o espaçamento e o formato de todas as mensagens. */
+.message {
+  width: fit-content;
+  max-width: 65%;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04)
+}
+/* Mensagens recebidas do cliente.
+   Usa um bege um pouco mais escuro que o fundo da aplicação. */
+.message.received {
+  background: #D8CC97;
+}
+/* Mensagens enviadas pelo funcionário.
+   Ficam alinhadas do lado direito da conversa. */
+.message.sent {
+  margin-left: auto;
+  background: #6C8DDA;
+}
+
 .date-divider {
   text-align: center;
   font-size: 8px;
