@@ -4,7 +4,6 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Conversas from './pages/Conversas.jsx';
 import Contatos from './pages/Contatos.jsx';
-import Campanhas from './pages/Campanhas.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Automacoes from './pages/Automacoes.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
@@ -18,7 +17,6 @@ export default function App() {
     Dashboard: <Dashboard />,
     Conversas: <Conversas />,
     Contatos: <Contatos />,
-    Campanhas: <Campanhas />,
     Relatórios: <Relatorios />,
     Automações: <Automacoes />,
     Configurações: <Configuracoes />,
