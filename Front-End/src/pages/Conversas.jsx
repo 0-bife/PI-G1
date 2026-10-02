@@ -18,6 +18,13 @@ export default function Conversations() {
   // Quando a tela abre, selecionamos a primeira conversa da lista.
   const [selected, setSelected] = useState(conversations[0]);
 
+// Guarda o texto digitado no campo de pesquisa.
+const [searchTerm, setSearchTerm] = useState("");
+
+// Filtra as conversas pelo nome do cliente.
+const filteredConversations = conversations.filter((conversation) =>
+  conversation.name.toLowerCase().includes(searchTerm.toLowerCase())
+);
   return (
     <div className="conversation-layout">
 
@@ -31,15 +38,24 @@ export default function Conversations() {
           <Search size={17} />
 
           <input
-            type="text"
-            placeholder="Buscar conversa..."
-          />
+  type="text"
+  placeholder="Buscar conversa..."
+  value={searchTerm}
+  onChange={(event) => setSearchTerm(event.target.value)}
+/>
         </div>
 
         {/* Lista de conversas */}
         <div className="conversation-items">
+    
+  {/* Mostra uma mensagem quando a busca não encontra nenhuma conversa */}
+        {filteredConversations.length === 0 && (
+        <p className="no-conversations">
+            Nenhuma conversa encontrada.
+        </p>
+)}
 
-          {conversations.map((conversation) => (
+        {filteredConversations.map((conversation) => (
 
             <button
               key={conversation.id}
