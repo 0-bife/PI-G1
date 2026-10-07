@@ -192,7 +192,13 @@ export class MessageService {
     let providerMessageId;
     try {
       providerMessageId = await this.whatsappClient.sendTextMessage(phone, text);
-    } catch {
+    } catch (error) {
+      this.logger.error('WhatsApp provider rejected outgoing message.', {
+        httpStatus: Number.isInteger(error.statusCode) ? error.statusCode : null,
+        providerCode: Number.isInteger(error.providerCode) ? error.providerCode : null,
+        providerSubcode: Number.isInteger(error.providerSubcode) ? error.providerSubcode : null,
+        networkCode: typeof error.code === 'string' ? error.code : null,
+      });
       await inTransaction(this.db, async (connection) => {
         await connection.execute(
           'UPDATE MENSAGEM SET status = ? WHERE id_mensagem = ?',

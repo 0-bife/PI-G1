@@ -34,8 +34,14 @@ export class WhatsAppClient {
     );
 
     if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      const providerError = result?.error;
       const error = new Error('WhatsApp API rejected the message.');
       error.statusCode = response.status;
+      if (Number.isInteger(providerError?.code)) error.providerCode = providerError.code;
+      if (Number.isInteger(providerError?.error_subcode)) {
+        error.providerSubcode = providerError.error_subcode;
+      }
       throw error;
     }
 

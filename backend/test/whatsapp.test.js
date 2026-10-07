@@ -420,8 +420,13 @@ test('status webhook arriving before the send response is applied when the messa
 });
 
 test('Meta send failures persist a failed state and return a sanitized gateway error', async () => {
-  const sendTextMessage = vi.fn().mockRejectedValue(new Error('provider response contains a secret'));
-  const { request, database } = await fixture(new MemoryDatabase(), sendTextMessage);
+  const providerError = Object.assign(new Error('provider response contains a secret'), {
+    statusCode: 400,
+    providerCode: 131030,
+    providerSubcode: 2494010,
+  });
+  const sendTextMessage = vi.fn().mockRejectedValue(providerError);
+  const { request, database, logger } = await fixture(new MemoryDatabase(), sendTextMessage);
   const response = await request('/api/mensagens/enviar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -436,6 +441,13 @@ test('Meta send failures persist a failed state and return a sanitized gateway e
   expect(await response.json()).toEqual({ error: 'WhatsApp provider rejected the message.' });
   expect(database.messages[0].status).toBe('failed');
   expect(database.statusHistory.map((event) => event.status)).toEqual(['pending', 'failed']);
+  expect(logger.error).toHaveBeenCalledWith('WhatsApp provider rejected outgoing message.', {
+    httpStatus: 400,
+    providerCode: 131030,
+    providerSubcode: 2494010,
+    networkCode: null,
+  });
+  expect(JSON.stringify(logger.error.mock.calls)).not.toContain('provider response contains a secret');
 });
 
 test('outgoing route requires API auth and rejects invalid input', async () => {
@@ -483,4 +495,31 @@ test('WhatsApp client sends text through the configured Graph API version', asyn
       body: expect.stringContaining('"to":"15551234567"'),
     }),
   );
+});
+
+test('WhatsApp client extracts only numeric Meta error diagnostics', async () => {
+  const fetchImpl = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 400,
+    json: async () => ({
+      error: {
+        message: 'Sensitive provider response',
+        code: 131030,
+        error_subcode: 2494010,
+      },
+    }),
+  });
+  const client = new WhatsAppClient({
+    WHATSAPP_ACCESS_TOKEN: 'secret-token',
+    WHATSAPP_PHONE_NUMBER_ID: 'phone-id',
+    WHATSAPP_API_VERSION: 'v99.0',
+  }, fetchImpl);
+
+  const error = await client.sendTextMessage('+15551234567', 'Hello').catch((reason) => reason);
+  expect(error).toMatchObject({
+    statusCode: 400,
+    providerCode: 131030,
+    providerSubcode: 2494010,
+  });
+  expect(error.message).not.toContain('Sensitive provider response');
 });
