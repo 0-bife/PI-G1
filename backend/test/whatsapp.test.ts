@@ -31,6 +31,7 @@ interface MemoryMessage {
   tipo?: TestValue;
   status: string;
   conversationId: TestValue;
+  userId?: TestValue;
 }
 interface MemoryStatus {
   externalId: TestValue;
@@ -123,6 +124,16 @@ class MemoryDatabase {
           const conversation = db.conversations.find((row) => row.contactId === values[0]);
           return [conversation ? [{ id_conversa: conversation.id_conversa }] : [], []];
         }
+        if (sql.startsWith('SELECT v.id_conversa, c.telefone FROM CONVERSA')) {
+          const conversation = db.conversations.find((row) => row.id_conversa === values[0]);
+          const contact = conversation
+            ? db.contacts.find((row) => row.id_contato === conversation.contactId)
+            : undefined;
+          return [conversation && contact ? [{
+            id_conversa: conversation.id_conversa,
+            telefone: contact.telefone,
+          }] : [], []];
+        }
         if (sql.startsWith('SELECT id_atendimento FROM ATENDIMENTO')) {
           const attendance = db.attendances.find(
             (row) => row.conversationId === values[0] && !row.closed,
@@ -203,6 +214,7 @@ class MemoryDatabase {
               conteudo: values[0],
               status: 'pending',
               conversationId: values[1],
+              userId: values[2],
             };
           } else {
             const [occurredAt, content, mediaReference, type, externalId, conversationId] = values;
@@ -445,9 +457,65 @@ test('outgoing message creates a contact and conversation when the phone is new'
   expect(database.conversations).toHaveLength(1);
   expect(database.attendances).toHaveLength(1);
   expect(database.messages).toMatchObject([
-    { id_externo: 'wamid.outgoing', status: 'sent', conteudo: 'Outbound test' },
+    {
+      id_externo: 'wamid.outgoing',
+      status: 'sent',
+      conteudo: 'Outbound test',
+      userId: 1,
+    },
   ]);
   expect(database.statusHistory.map((event) => event.status)).toEqual(['pending', 'sent']);
+});
+
+test('conversation message sending uses the conversation phone and token user as author', async () => {
+  const sendTextMessage = vi.fn()
+    .mockResolvedValueOnce('wamid.initial')
+    .mockResolvedValueOnce('wamid.reply');
+  const { request, database } = await fixture(new MemoryDatabase(), sendTextMessage);
+  const first = await request('/api/mensagens/enviar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      telefone: '+15557654321',
+      tipo: 'text',
+      conteudo: 'Initial',
+    }),
+  });
+  expect(first.status).toBe(202);
+
+  const response = await request('/api/conversas/1/mensagens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tipo: 'text', conteudo: 'Reply' }),
+  });
+  expect(response.status).toBe(202);
+  expect(sendTextMessage).toHaveBeenLastCalledWith('+15557654321', 'Reply');
+  expect(database.messages[1]).toMatchObject({
+    conversationId: 1,
+    userId: 1,
+    conteudo: 'Reply',
+    status: 'sent',
+  });
+
+  const invalid = await request('/api/conversas/1/mensagens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tipo: 'text', conteudo: 'No forged author', userId: 99 }),
+  });
+  expect(invalid.status).toBe(400);
+  expect(sendTextMessage).toHaveBeenCalledTimes(2);
+});
+
+test('conversation message sending returns 404 without calling Meta for a missing conversation', async () => {
+  const sendTextMessage = vi.fn().mockResolvedValue('wamid.unused');
+  const { request } = await fixture(new MemoryDatabase(), sendTextMessage);
+  const response = await request('/api/conversas/99/mensagens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tipo: 'text', conteudo: 'Reply' }),
+  });
+  expect(response.status).toBe(404);
+  expect(sendTextMessage).not.toHaveBeenCalled();
 });
 
 test('Meta status events update current state and record duplicate-safe history', async () => {

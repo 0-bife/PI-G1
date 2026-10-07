@@ -1,6 +1,6 @@
 # InAblink API
 
-Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp, autenticação, contatos, etiquetas, conversas, atendimentos e responsáveis estão implementados; consultas de mensagens e anotações são as próximas rotas de negócio. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
+Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp, autenticação, contatos, etiquetas, conversas, atendimentos, responsáveis, mensagens e anotações estão implementados. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
 
 ## Executar localmente
 
@@ -123,12 +123,13 @@ Mensagem recebida reabre o fluxo criando novo atendimento se o anterior estiver 
 | --- | --- | --- |
 | `GET /api/mensagens/:id` | Autenticado | Consulta mensagem, conversa e contato. |
 | `GET /api/mensagens/:id/status` | Autenticado | Retorna status atual e histórico cronológico. |
-| `POST /api/conversas/:id/mensagens` | Atendente/admin | Envia texto da conversa: `{ "tipo": "text", "conteudo": "..." }`; remetente é o usuário autenticado. |
+| `GET /api/conversas/:id/mensagens?page=1&limit=20` | Autenticado | Lista mensagens em ordem cronológica, incluindo autor quando enviada por funcionário. |
+| `POST /api/conversas/:id/mensagens` | Atendente/admin | Envia texto da conversa: `{ "tipo": "text", "conteudo": "..." }`; usa o telefone da conversa e registra como autor o usuário autenticado. |
 | `POST /api/mensagens/enviar` | Atendente/admin | Envia para número E.164: `{ "telefone": "+5511999999999", "tipo": "text", "conteudo": "..." }`; cria contato somente com telefone e conversa se ainda não existirem, e então envia. |
 | `GET /api/conversas/:id/anotacoes` | Autenticado | Lista notas cronologicamente com autor. |
-| `POST /api/conversas/:id/anotacoes` | Atendente/admin | Body `{ "texto": "..." }`; autor vem do token; nunca chama a Meta. |
+| `POST /api/conversas/:id/anotacoes` | Atendente/admin | Body `{ "texto": "..." }` (1–255 caracteres); autor vem do token; nunca chama a Meta. |
 
-Não oferecer POST genérico de `/api/mensagens`: novas mensagens devem sempre estar vinculadas a conversa e passar pelo envio para Meta ou pelo webhook. Não oferecer PATCH/DELETE de mensagens nem DELETE de anotações; preservar histórico conforme RN05/RN06. Conteúdo textual tem limite de 2048 caracteres. Mensagem de mídia pode ter `conteudo: null`, mas exige `referencia_midia` e `tipo` compatíveis. A primeira versão de envio suporta texto; mídia recebida deve preservar tipo e ID/referência Meta sem alegar que o arquivo foi baixado.
+Não oferecer POST genérico de `/api/mensagens`: novas mensagens devem sempre estar vinculadas a conversa e passar pelo envio para Meta ou pelo webhook. Não oferecer PATCH/DELETE de mensagens nem DELETE de anotações; preservar histórico conforme RN05/RN06. Conteúdo textual tem limite de 2048 caracteres. Mensagem de mídia recebida pode ter `conteudo: null`, mas mantém `referencia_midia` e `tipo`; a primeira versão de envio suporta somente texto.
 
 **Envio de saída:** localizar ou criar contato por telefone e conversa única; garantir atendimento aberto; criar mensagem local `pending`; chamar Graph API para o telefone do contato; após aceite, persistir `wamid`, status `sent` e evento do histórico, e responder `202` com a mensagem. Em falha da Meta, gravar `failed` e evento sanitizado, responder `502`. Se o banco falhar após aceite externo, não repetir cegamente o envio: registrar/reconciliar pelo `wamid`. Para recuperação garantida após reinícios, planejar uma outbox e chave de idempotência.
 

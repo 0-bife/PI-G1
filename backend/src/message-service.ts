@@ -191,6 +191,46 @@ function statusCanAdvance(current: string, incoming: string): boolean {
   return incomingRank > currentRank;
 }
 
+interface MessageRow extends RowDataPacket {
+  id_mensagem: number;
+  data_hora: string;
+  conteudo: string | null;
+  origem: string;
+  status: string;
+  referencia_midia: string | null;
+  tipo: string;
+  id_externo: string | null;
+  FK_CONVERSA_id_conversa: number;
+  FK_USUARIO_id_usuario: number | null;
+  conversa_criada_em: string;
+  telefone: string;
+  nome_contato: string | null;
+  nome_usuario: string | null;
+}
+
+interface StatusHistoryRow extends RowDataPacket {
+  id_historico: number;
+  status: string;
+  ocorrido_em: string;
+  detalhe_erro: string | null;
+}
+
+interface AnnotationRow extends RowDataPacket {
+  id_anotacao: number;
+  texto: string;
+  criada_em: string;
+  FK_CONVERSA_id_conversa: number;
+  FK_USUARIO_id_usuario: number;
+  autor_nome: string;
+}
+
+export class MessageConversationNotFoundError extends Error {
+  constructor() {
+    super('Conversation not found.');
+    this.name = 'MessageConversationNotFoundError';
+  }
+}
+
 export class WhatsAppDeliveryError extends Error {
   constructor() {
     super('WhatsApp provider rejected the message.');
@@ -206,15 +246,39 @@ export class MessageService {
   ) {
   }
 
-  async sendText({ phone, text }: { phone: string; text: string }) {
+  async sendText({
+    phone,
+    text,
+    userId,
+    conversationId,
+  }: { phone?: string; text: string; userId: number; conversationId?: number }) {
+    if ((phone === undefined) === (conversationId === undefined)) {
+      throw new Error('Exactly one of phone or conversationId is required.');
+    }
     const pending = await inTransaction(this.db, async (connection) => {
-      const { conversationId } = await ensureContactConversation(connection, phone);
-      const attendanceId = await ensureOpenAttendance(connection, conversationId);
+      let targetPhone = phone;
+      let targetConversationId: number;
+      if (conversationId !== undefined) {
+        const [conversations] = await connection.execute<RowDataPacket[]>(
+          `SELECT v.id_conversa, c.telefone
+           FROM CONVERSA v JOIN CONTATO c ON c.id_contato = v.FK_CONTATO_id_contato
+           WHERE v.id_conversa = ? FOR UPDATE`,
+          [conversationId],
+        );
+        if (!conversations.length) throw new MessageConversationNotFoundError();
+        targetConversationId = Number(conversations[0].id_conversa);
+        targetPhone = String(conversations[0].telefone);
+      } else {
+        if (!targetPhone) throw new Error('A phone number is required.');
+        ({ conversationId: targetConversationId } = await ensureContactConversation(connection, targetPhone));
+      }
+      if (!targetPhone) throw new Error('The conversation has no contact phone number.');
+      const attendanceId = await ensureOpenAttendance(connection, targetConversationId);
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO MENSAGEM
-           (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa)
-         VALUES (UTC_TIMESTAMP(), ?, 'usuario', 'pending', 'text', ?)`,
-        [text, conversationId],
+           (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario)
+         VALUES (UTC_TIMESTAMP(), ?, 'usuario', 'pending', 'text', ?, ?)`,
+        [text, targetConversationId, userId],
       );
       await insertStatusHistory(
         connection,
@@ -222,12 +286,17 @@ export class MessageService {
         'pending',
         mysqlDateTime(new Date()),
       );
-      return { messageId: result.insertId, conversationId, attendanceId };
+      return {
+        messageId: result.insertId,
+        conversationId: targetConversationId,
+        attendanceId,
+        phone: targetPhone,
+      };
     });
 
     let providerMessageId;
     try {
-      providerMessageId = await this.whatsappClient.sendTextMessage(phone, text);
+      providerMessageId = await this.whatsappClient.sendTextMessage(pending.phone, text);
     } catch (error) {
       const details = isRecord(error) ? error : {};
       this.logger.error('WhatsApp provider rejected outgoing message.', {
@@ -290,11 +359,119 @@ export class MessageService {
       id_externo: providerMessageId,
       FK_CONVERSA_id_conversa: pending.conversationId,
       FK_ATENDIMENTO_id_atendimento: pending.attendanceId,
+      FK_USUARIO_id_usuario: userId,
       conteudo: text,
       tipo: 'text',
       origem: 'usuario',
       status: finalStatus,
     };
+  }
+
+  async listConversationMessages(
+    conversationId: number,
+    page: number,
+    limit: number,
+  ): Promise<{ data: MessageRow[]; page: number; limit: number } | null> {
+    const [conversations] = await this.db.execute<RowDataPacket[]>(
+      'SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? LIMIT 1',
+      [conversationId],
+    );
+    if (!conversations.length) return null;
+    const offset = (page - 1) * limit;
+    const [rows] = await this.db.execute<MessageRow[]>(
+      `SELECT m.id_mensagem, m.data_hora, m.conteudo, m.origem, m.status,
+              m.referencia_midia, m.tipo, m.id_externo,
+              m.FK_CONVERSA_id_conversa, m.FK_USUARIO_id_usuario,
+              u.nome AS nome_usuario
+       FROM MENSAGEM m
+       LEFT JOIN USUARIO u ON u.id_usuario = m.FK_USUARIO_id_usuario
+       WHERE m.FK_CONVERSA_id_conversa = ?
+       ORDER BY m.data_hora ASC, m.id_mensagem ASC
+       LIMIT ${limit} OFFSET ${offset}`,
+      [conversationId],
+    );
+    return { data: rows, page, limit };
+  }
+
+  async getMessage(id: number): Promise<MessageRow | null> {
+    const [rows] = await this.db.execute<MessageRow[]>(
+      `SELECT m.id_mensagem, m.data_hora, m.conteudo, m.origem, m.status,
+              m.referencia_midia, m.tipo, m.id_externo,
+              m.FK_CONVERSA_id_conversa, m.FK_USUARIO_id_usuario,
+              v.criada_em AS conversa_criada_em, c.telefone, c.nome AS nome_contato,
+              u.nome AS nome_usuario
+       FROM MENSAGEM m
+       JOIN CONVERSA v ON v.id_conversa = m.FK_CONVERSA_id_conversa
+       JOIN CONTATO c ON c.id_contato = v.FK_CONTATO_id_contato
+       LEFT JOIN USUARIO u ON u.id_usuario = m.FK_USUARIO_id_usuario
+       WHERE m.id_mensagem = ? LIMIT 1`,
+      [id],
+    );
+    return rows[0] ?? null;
+  }
+
+  async getMessageStatus(id: number): Promise<{
+    id_mensagem: number;
+    status: string;
+    historico: StatusHistoryRow[];
+  } | null> {
+    const message = await this.getMessage(id);
+    if (!message) return null;
+    const [history] = await this.db.execute<StatusHistoryRow[]>(
+      `SELECT id_historico, status, ocorrido_em, detalhe_erro
+       FROM MENSAGEM_STATUS_HISTORICO
+       WHERE FK_MENSAGEM_id_mensagem = ?
+       ORDER BY ocorrido_em ASC, id_historico ASC`,
+      [id],
+    );
+    return { id_mensagem: id, status: message.status, historico: history };
+  }
+
+  async listAnnotations(
+    conversationId: number,
+    page: number,
+    limit: number,
+  ): Promise<{ data: AnnotationRow[]; page: number; limit: number } | null> {
+    const [conversations] = await this.db.execute<RowDataPacket[]>(
+      'SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? LIMIT 1',
+      [conversationId],
+    );
+    if (!conversations.length) return null;
+    const offset = (page - 1) * limit;
+    const [rows] = await this.db.execute<AnnotationRow[]>(
+      `SELECT a.id_anotacao, a.texto, a.criada_em,
+              a.FK_CONVERSA_id_conversa, a.FK_USUARIO_id_usuario,
+              u.nome AS autor_nome
+       FROM ANOTACAO_INTERNA a
+       JOIN USUARIO u ON u.id_usuario = a.FK_USUARIO_id_usuario
+       WHERE a.FK_CONVERSA_id_conversa = ?
+       ORDER BY a.criada_em ASC, a.id_anotacao ASC
+       LIMIT ${limit} OFFSET ${offset}`,
+      [conversationId],
+    );
+    return { data: rows, page, limit };
+  }
+
+  async createAnnotation(conversationId: number, userId: number, text: string): Promise<AnnotationRow | null> {
+    const [result] = await this.db.execute<ResultSetHeader>(
+      `INSERT INTO ANOTACAO_INTERNA
+         (texto, criada_em, FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario)
+       SELECT ?, UTC_TIMESTAMP(), v.id_conversa, ?
+       FROM CONVERSA v WHERE v.id_conversa = ?`,
+      [text, userId, conversationId],
+    );
+    if (!result.affectedRows) return null;
+    const [rows] = await this.db.execute<AnnotationRow[]>(
+      `SELECT a.id_anotacao, a.texto, a.criada_em,
+              a.FK_CONVERSA_id_conversa, a.FK_USUARIO_id_usuario,
+              u.nome AS autor_nome
+       FROM ANOTACAO_INTERNA a
+       JOIN USUARIO u ON u.id_usuario = a.FK_USUARIO_id_usuario
+       WHERE a.id_anotacao = ? LIMIT 1`,
+      [result.insertId],
+    );
+    if (!rows.length) throw new Error('Annotation insert did not return a row.');
+    return rows[0];
   }
 
   async processWebhook(payload: unknown) {

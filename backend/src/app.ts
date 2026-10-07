@@ -8,7 +8,11 @@ import {
 } from './auth.js';
 import { ContactService } from './contact-service.js';
 import { ConversationService } from './conversation-service.js';
-import { MessageService, WhatsAppDeliveryError } from './message-service.js';
+import {
+  MessageConversationNotFoundError,
+  MessageService,
+  WhatsAppDeliveryError,
+} from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
 
 function fail(message: string): Error & { status: number } {
@@ -491,6 +495,81 @@ export function createApp(
     }
   });
 
+  app.get('/api/conversas/:id/mensagens', async (req: Request, res: Response) => {
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    const result = await messages.listConversationMessages(conversationId, page, limit);
+    if (!result) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.json(result);
+  });
+  app.post('/api/conversas/:id/mensagens', async (req: Request, res: Response) => {
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).some((key) => !['tipo', 'conteudo'].includes(key))
+      || body.tipo !== 'text'
+      || typeof body.conteudo !== 'string'
+      || !body.conteudo.trim()
+      || [...body.conteudo.trim()].length > 2048) {
+      throw new RequestValidationError('Informe tipo "text" e conteúdo de 1 a 2048 caracteres.');
+    }
+    if (!whatsappClient.accessToken || !whatsappClient.phoneNumberId || !whatsappClient.graphApiVersion) {
+      return res.status(503).json({ error: 'WhatsApp sending is not configured.' });
+    }
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
+    try {
+      const data = await messages.sendText({
+        conversationId,
+        userId,
+        text: body.conteudo.trim(),
+      });
+      return res.status(202).json({ data });
+    } catch (error) {
+      if (error instanceof MessageConversationNotFoundError) {
+        return res.status(404).json({ error: 'Conversation not found.' });
+      }
+      if (error instanceof WhatsAppDeliveryError) {
+        return res.status(502).json({ error: 'WhatsApp provider rejected the message.' });
+      }
+      logger.error('WhatsApp message processing failed.', { code: errorInfo(error).code || 'INTERNAL_ERROR' });
+      return res.status(500).json({ error: 'Failed to send message.' });
+    }
+  });
+  app.get('/api/mensagens/:id/status', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await messages.getMessageStatus(id);
+    if (!data) return res.status(404).json({ error: 'Message not found.' });
+    return res.json({ data });
+  });
+  app.get('/api/mensagens/:id', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await messages.getMessage(id);
+    if (!data) return res.status(404).json({ error: 'Message not found.' });
+    return res.json({ data });
+  });
+  app.get('/api/conversas/:id/anotacoes', async (req: Request, res: Response) => {
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    const data = await messages.listAnnotations(conversationId, page, limit);
+    if (!data) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.json(data);
+  });
+  app.post('/api/conversas/:id/anotacoes', async (req: Request, res: Response) => {
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length !== 1 || typeof body.texto !== 'string'
+      || !body.texto.trim() || [...body.texto.trim()].length > 255) {
+      throw new RequestValidationError('texto é obrigatório e deve ter até 255 caracteres.');
+    }
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
+    const data = await messages.createAnnotation(conversationId, userId, body.texto.trim());
+    if (!data) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.status(201).json({ data });
+  });
+
   app.post('/api/mensagens/enviar', async (req: Request, res: Response) => {
     const body = isRecord(req.body) ? req.body : {};
     const { telefone, tipo, conteudo } = body;
@@ -505,8 +584,10 @@ export function createApp(
     if (!whatsappClient.accessToken || !whatsappClient.phoneNumberId || !whatsappClient.graphApiVersion) {
       return res.status(503).json({ error: 'WhatsApp sending is not configured.' });
     }
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
     try {
-      const data = await messages.sendText({ phone: telefone, text: conteudo.trim() });
+      const data = await messages.sendText({ phone: telefone, text: conteudo.trim(), userId });
       return res.status(202).json({ data });
     } catch (error) {
       if (error instanceof WhatsAppDeliveryError) {

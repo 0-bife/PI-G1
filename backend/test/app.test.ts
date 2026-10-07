@@ -508,6 +508,97 @@ test('removing an assignment closes its interval without deleting its history', 
   assert.equal(closed, true);
 });
 
+test('message list and detail expose stored message data and chronological status history', async () => {
+  const request = await fixture(async (sql, values) => {
+    if (sql.startsWith('SELECT id_conversa FROM CONVERSA')) return [[{ id_conversa: 12 }], []];
+    if (sql.includes('FROM MENSAGEM m') && sql.includes('WHERE m.FK_CONVERSA_id_conversa')) {
+      assert.deepEqual(values, [12]);
+      assert.match(sql, /ORDER BY m\.data_hora ASC, m\.id_mensagem ASC\s+LIMIT 10 OFFSET 10$/);
+      return [[{
+        id_mensagem: 2,
+        data_hora: '2026-01-02 10:00:00',
+        conteudo: 'hello',
+        origem: 'contato',
+        status: 'read',
+        tipo: 'text',
+        FK_CONVERSA_id_conversa: 12,
+        FK_USUARIO_id_usuario: null,
+      }], []];
+    }
+    if (sql.includes('FROM MENSAGEM m') && sql.includes('WHERE m.id_mensagem')) {
+      assert.deepEqual(values, [2]);
+      return [[{
+        id_mensagem: 2,
+        data_hora: '2026-01-02 10:00:00',
+        conteudo: 'hello',
+        origem: 'contato',
+        status: 'read',
+        tipo: 'text',
+        id_externo: 'wamid.test',
+        FK_CONVERSA_id_conversa: 12,
+        FK_USUARIO_id_usuario: null,
+        conversa_criada_em: '2026-01-01',
+        telefone: '+15551234567',
+        nome_contato: 'Maria',
+        nome_usuario: null,
+      }], []];
+    }
+    if (sql.includes('FROM MENSAGEM_STATUS_HISTORICO')) {
+      assert.deepEqual(values, [2]);
+      assert.match(sql, /ORDER BY ocorrido_em ASC, id_historico ASC/);
+      return [[
+        { id_historico: 1, status: 'received', ocorrido_em: '2026-01-02 10:00:00', detalhe_erro: null },
+        { id_historico: 2, status: 'read', ocorrido_em: '2026-01-02 10:01:00', detalhe_erro: null },
+      ], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const list = await request('/api/conversas/12/mensagens?page=2&limit=10');
+  assert.equal(list.status, 200);
+  assert.equal(((await list.json()) as { data: Array<{ id_mensagem: number }> }).data[0].id_mensagem, 2);
+  const detail = await request('/api/mensagens/2');
+  assert.equal(detail.status, 200);
+  assert.equal(((await detail.json()) as { data: { telefone: string } }).data.telefone, '+15551234567');
+  const status = await request('/api/mensagens/2/status');
+  const statusData = (await status.json() as { data: { status: string; historico: unknown[] } }).data;
+  assert.equal(statusData.status, 'read');
+  assert.equal(statusData.historico.length, 2);
+});
+
+test('annotations are authored by the token user, paginated and never sent to WhatsApp', async () => {
+  const request = await fixture(async (sql, values) => {
+    if (sql.startsWith('SELECT id_conversa FROM CONVERSA')) return [[{ id_conversa: 12 }], []];
+    if (sql.includes('FROM ANOTACAO_INTERNA a') && sql.includes('WHERE a.FK_CONVERSA_id_conversa')) {
+      assert.deepEqual(values, [12]);
+      assert.match(sql, /ORDER BY a\.criada_em ASC, a\.id_anotacao ASC/);
+      return [[{ id_anotacao: 4, texto: 'Follow up', FK_USUARIO_id_usuario: 1, autor_nome: 'Admin' }], []];
+    }
+    if (sql.startsWith('INSERT INTO ANOTACAO_INTERNA')) {
+      assert.deepEqual(values, ['Follow up', 1, 12]);
+      return [{ insertId: 4, affectedRows: 1 }, []];
+    }
+    if (sql.includes('WHERE a.id_anotacao = ?')) {
+      assert.deepEqual(values, [4]);
+      return [[{
+        id_anotacao: 4,
+        texto: 'Follow up',
+        FK_CONVERSA_id_conversa: 12,
+        FK_USUARIO_id_usuario: 1,
+        autor_nome: 'Admin',
+      }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const listed = await request('/api/conversas/12/anotacoes?page=1&limit=10');
+  assert.equal(listed.status, 200);
+  const created = await request('/api/conversas/12/anotacoes', json({ texto: 'Follow up' }));
+  assert.equal(created.status, 201);
+  assert.equal(((await created.json()) as { data: { FK_USUARIO_id_usuario: number } }).data.FK_USUARIO_id_usuario, 1);
+  assert.equal((await request('/api/conversas/12/anotacoes', json({ texto: 'x'.repeat(256) }))).status, 400);
+});
+
 test('database errors do not expose SQL or credentials', async () => {
   const request = await fixture(async () => { throw new Error('secret credentials'); });
   const response = await request('/api/contatos');
