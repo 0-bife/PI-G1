@@ -1,6 +1,5 @@
 import express, { type Request, type Response } from 'express';
 import type { Pool } from 'mysql2/promise';
-import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import {
   AuthService,
   AuthenticationError,
@@ -8,20 +7,9 @@ import {
   RequestValidationError,
 } from './auth.js';
 import { ContactService } from './contact-service.js';
+import { ConversationService } from './conversation-service.js';
 import { MessageService, WhatsAppDeliveryError } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
-
-interface ResourceDefinition {
-  table: string;
-  id: string;
-  fields: string[];
-  required: string[];
-  deletable?: boolean;
-}
-
-const resources: Record<string, ResourceDefinition> = {
-  conversas: { table: 'CONVERSA', id: 'id_conversa', fields: [], required: [], deletable: false },
-};
 
 function fail(message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status: 400 });
@@ -38,33 +26,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function validate(body: unknown, resource: ResourceDefinition, partial: boolean): Record<string, string | null> {
-  if (!isRecord(body)) throw fail('A JSON object is required.');
-  if (Object.keys(body).some((key) => !resource.fields.includes(key))) throw fail('Unknown field.');
-  const result: Record<string, string | null> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (value === null && !resource.required.includes(key)) {
-      result[key] = null;
-      continue;
-    }
-    if (typeof value !== 'string' || !value.trim() || [...value.trim()].length > 2048) {
-      throw fail(`${key} must be a non-empty string with at most 2048 characters.`);
-    }
-    result[key] = value.trim();
-    if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) throw fail('Invalid email.');
-  }
-  if (!partial && resource.required.some((key) => !result[key])) {
-    throw fail(`Required fields: ${resource.required.join(', ')}.`);
-  }
-  if (!partial && resource.fields.length && !Object.keys(result).length) {
-    throw fail('At least one field is required.');
-  }
-  if (partial && !Object.keys(result).length) throw fail('At least one field is required.');
-  return result;
-}
-
 function e164(value: unknown): value is string {
   return typeof value === 'string' && /^\+[1-9]\d{7,14}$/.test(value);
+}
+
+function mysqlDateTimeFromRfc3339(value: string): string | null {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!parts) return null;
+  const [, yearPart, monthPart, dayPart, hourPart, minutePart, secondPart, , offsetHour, offsetMinute] = parts;
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const day = Number(dayPart);
+  const hour = Number(hourPart);
+  const minute = Number(minutePart);
+  const second = Number(secondPart);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth
+    || hour > 23 || minute > 59 || second > 59
+    || (offsetHour !== undefined && Number(offsetHour) > 23)
+    || (offsetMinute !== undefined && Number(offsetMinute) > 59)) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 function errorInfo(error: unknown): { status?: number; code?: string; message?: string; type?: string } {
@@ -87,6 +70,7 @@ export function createApp(
   app.disable('x-powered-by');
   const messages = new MessageService(db, whatsappClient, logger);
   const contacts = new ContactService(db);
+  const conversations = new ConversationService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
 
   app.use('/api', async (req, res, next) => {
@@ -339,6 +323,136 @@ export function createApp(
     return res.status(204).end();
   });
 
+  app.get('/api/conversas', async (req: Request, res: Response) => {
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    const phone = req.query.telefone;
+    let phoneFilter: string | undefined;
+    if (phone !== undefined) {
+      if (!e164(phone)) throw new RequestValidationError('telefone E.164 inválido.');
+      phoneFilter = phone;
+    }
+    return res.json(await conversations.listConversations(page, limit, phoneFilter));
+  });
+  app.post('/api/conversas', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin' && req.authenticatedUser?.perfil !== 'atendente') {
+      throw new AuthorizationError();
+    }
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length !== 1 || !e164(body.telefone)) {
+      throw new RequestValidationError('Informe somente telefone no formato E.164.');
+    }
+    const { conversation, created } = await conversations.createConversation(body.telefone);
+    if (!created) return res.status(200).json({ data: conversation });
+    return res.location(`/api/conversas/${conversation.id_conversa}`).status(201).json({ data: conversation });
+  });
+  app.get('/api/conversas/:id', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await conversations.getConversation(id);
+    if (!data) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.json({ data });
+  });
+  app.get('/api/conversas/:id/atendimentos', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    const data = await conversations.listAttendances(id, page, limit);
+    if (!data) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.json(data);
+  });
+  app.post('/api/conversas/:id/atendimentos', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length) throw new RequestValidationError('A abertura do atendimento não recebe campos.');
+    const result = await conversations.openAttendance(id);
+    if (result === 'not-found') return res.status(404).json({ error: 'Conversation not found.' });
+    if (result === 'already-open') return res.status(409).json({ error: 'Conversation already has an open attendance.' });
+    const data = await conversations.getAttendance(result);
+    if (!data) throw new Error('New attendance could not be read.');
+    return res.location(`/api/atendimentos/${result}`).status(201).json({ data });
+  });
+  app.patch('/api/atendimentos/:id', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !['status', 'prazo_retorno'].includes(key))) {
+      throw new RequestValidationError('Informe status e/ou prazo_retorno.');
+    }
+    if (body.status !== undefined && body.status !== 'open' && body.status !== 'closed') {
+      throw new RequestValidationError('status deve ser "open" ou "closed".');
+    }
+    let deadline: string | null | undefined;
+    if (body.prazo_retorno === null) {
+      deadline = null;
+    } else if (body.prazo_retorno !== undefined) {
+      if (typeof body.prazo_retorno !== 'string') {
+        throw new RequestValidationError('prazo_retorno deve ser uma data RFC 3339 válida ou null.');
+      }
+      deadline = mysqlDateTimeFromRfc3339(body.prazo_retorno) ?? undefined;
+      if (!deadline) throw new RequestValidationError('prazo_retorno deve ser uma data RFC 3339 válida ou null.');
+    }
+    const result = await conversations.updateAttendance(id, {
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(deadline !== undefined ? { prazo_retorno: deadline } : {}),
+    });
+    if (result === 'not-found') return res.status(404).json({ error: 'Attendance not found.' });
+    if (result === 'closed') return res.status(409).json({ error: 'A closed attendance cannot be reopened.' });
+    return res.status(204).end();
+  });
+  app.get('/api/atendimentos/:id/atribuicoes', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await conversations.listAssignments(id);
+    if (!data) return res.status(404).json({ error: 'Attendance not found.' });
+    return res.json({ data });
+  });
+  app.post('/api/atendimentos/:id/atribuicoes', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length !== 1) throw new RequestValidationError('Informe somente usuarioId.');
+    const userId = positiveInteger(body.usuarioId, 'usuarioId');
+    const result = await conversations.addAssignment(id, userId);
+    if (result.kind === 'not-found') return res.status(404).json({ error: 'Attendance not found.' });
+    if (result.kind === 'closed') return res.status(409).json({ error: 'Cannot assign a closed attendance.' });
+    if (result.kind === 'inactive-user') return res.status(404).json({ error: 'Active user not found.' });
+    if (result.kind === 'exists') return res.status(204).end();
+    return res.location(`/api/atribuicoes/${result.assignment.id_atribuicao}`)
+      .status(201).json({ data: result.assignment });
+  });
+  app.delete('/api/atribuicoes/:id', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const id = positiveInteger(req.params.id, 'id');
+    if ((await conversations.closeAssignment(id)) === 'not-found') {
+      return res.status(404).json({ error: 'Assignment not found.' });
+    }
+    return res.status(204).end();
+  });
+  app.get('/api/conversas/:id/etiquetas', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await conversations.listConversationLabels(id);
+    if (!data) return res.status(404).json({ error: 'Conversation not found.' });
+    return res.json({ data });
+  });
+  app.put('/api/conversas/:id/etiquetas/:etiquetaId', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    const result = await conversations.addConversationLabel(conversationId, labelId);
+    if (result === 'missing-conversation') return res.status(404).json({ error: 'Conversation not found.' });
+    if (result === 'missing-label') return res.status(404).json({ error: 'Label not found.' });
+    return res.status(204).end();
+  });
+  app.delete('/api/conversas/:id/etiquetas/:etiquetaId', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    const result = await conversations.removeConversationLabel(conversationId, labelId);
+    if (result === 'missing-conversation') return res.status(404).json({ error: 'Conversation not found.' });
+    if (result === 'missing-association') return res.status(404).json({ error: 'Conversation label not found.' });
+    return res.status(204).end();
+  });
+
   app.get('/api/webhook/whatsapp', (req: Request, res: Response) => {
     if (!whatsappClient.verifyToken) {
       return res.status(503).json({ error: 'Webhook verification is not configured.' });
@@ -402,58 +516,6 @@ export function createApp(
       return res.status(500).json({ error: 'Failed to send message.' });
     }
   });
-
-  for (const [path, resource] of Object.entries(resources)) {
-    const { table, id } = resource;
-    const route = `/api/${path}`;
-    app.get(route, async (req: Request, res: Response) => {
-      const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
-      const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
-      const [rows] = await db.execute<RowDataPacket[]>(
-        `SELECT * FROM ${table} ORDER BY ${id} DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}`,
-      );
-      return res.json({ data: rows, page, limit });
-    });
-    app.get(`${route}/:id`, async (req: Request, res: Response) => {
-      const value = positiveInteger(req.params.id, 'id');
-      const [rows] = await db.execute<RowDataPacket[]>(`SELECT * FROM ${table} WHERE ${id} = ?`, [value]);
-      if (!rows.length) return res.status(404).json({ error: 'Resource not found.' });
-      return res.json({ data: rows[0] });
-    });
-    if (resource.fields.length) {
-      app.post(route, async (req: Request, res: Response) => {
-        const body = validate(req.body, resource, false);
-        const fields = Object.keys(body);
-        const dateField = path === 'contatos' ? ', cadastrado_em' : '';
-        const dateValue = path === 'contatos' ? ', CURRENT_DATE()' : '';
-        const [result] = await db.execute<ResultSetHeader>(
-          `INSERT INTO ${table} (${fields.join(', ')}${dateField}) VALUES (${fields.map(() => '?').join(', ')}${dateValue})`,
-          Object.values(body),
-        );
-        return res.location(`${route}/${result.insertId}`).status(201).json({
-          data: { [id]: result.insertId, ...body },
-        });
-      });
-      app.patch(`${route}/:id`, async (req: Request, res: Response) => {
-        const value = positiveInteger(req.params.id, 'id');
-        const body = validate(req.body, resource, true);
-        const [result] = await db.execute<ResultSetHeader>(
-          `UPDATE ${table} SET ${Object.keys(body).map((field) => `${field} = ?`).join(', ')} WHERE ${id} = ?`,
-          [...Object.values(body), value],
-        );
-        if (!result.affectedRows) return res.status(404).json({ error: 'Resource not found.' });
-        return res.status(204).end();
-      });
-    }
-    if (resource.deletable !== false) {
-      app.delete(`${route}/:id`, async (req: Request, res: Response) => {
-        const value = positiveInteger(req.params.id, 'id');
-        const [result] = await db.execute<ResultSetHeader>(`DELETE FROM ${table} WHERE ${id} = ?`, [value]);
-        if (!result.affectedRows) return res.status(404).json({ error: 'Resource not found.' });
-        return res.status(204).end();
-      });
-    }
-  }
 
   app.use((_req: Request, res: Response) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {

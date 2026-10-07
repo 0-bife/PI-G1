@@ -48,6 +48,13 @@ async function fixture(execute: (sql: string, values?: unknown[]) => Promise<unk
       }
       return execute(sql, values);
     },
+    getConnection: async () => ({
+      execute: async (sql: string, values?: unknown[]) => execute(sql, values),
+      beginTransaction: async () => {},
+      commit: async () => {},
+      rollback: async () => {},
+      release: () => {},
+    }),
   };
   const server = createApp(
     db as unknown as Pool,
@@ -240,6 +247,265 @@ test('label create and update bind user values as SQL parameters', async () => {
   assert.equal(created.status, 201);
   const updated = await request('/api/etiquetas/5', json({ nome: name }, 'PATCH'));
   assert.equal(updated.status, 204);
+});
+
+test('conversation list returns latest message, open attendance and active responsible users', async () => {
+  const phone = '+15551234567';
+  const request = await fixture(async (sql, values) => {
+    if (sql.includes('FROM CONVERSA v')) {
+      assert.deepEqual(values, [phone]);
+      assert.match(sql, /LIMIT 10 OFFSET 10$/);
+      return [[{
+        id_conversa: 12,
+        criada_em: '2026-01-01',
+        id_contato: 9,
+        telefone: phone,
+        nome: 'Maria',
+        email: null,
+        id_atendimento_aberto: 23,
+        status_atendimento: 'open',
+        iniciado_em: '2026-01-02 10:00:00',
+        prazo_retorno: null,
+        ultima_mensagem_em: '2026-01-02 11:00:00',
+      }], []];
+    }
+    if (sql.includes('FROM ATRIBUICAO a')) {
+      return [[{
+        id_atribuicao: 31,
+        iniciada_em: '2026-01-02 10:30:00',
+        encerrada_em: null,
+        FK_USUARIO_id_usuario: 5,
+        nome: 'Ana',
+        email: 'ana@example.com',
+        perfil: 'atendente',
+        FK_ATENDIMENTO_id_atendimento: 23,
+      }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const response = await request(`/api/conversas?page=2&limit=10&telefone=${encodeURIComponent(phone)}`);
+  assert.equal(response.status, 200);
+  const result = await response.json() as { data: Array<Record<string, unknown>>; page: number; limit: number };
+  assert.equal(result.page, 2);
+  assert.equal(result.data[0].ultima_mensagem_em, '2026-01-02 11:00:00');
+  assert.deepEqual(result.data[0].atendimento_aberto, {
+    id_atendimento: 23,
+    status: 'open',
+    iniciado_em: '2026-01-02 10:00:00',
+    prazo_retorno: null,
+  });
+  assert.equal((result.data[0].responsaveis_ativos as unknown[]).length, 1);
+});
+
+test('conversation creation reuses the unique contact and conversation', async () => {
+  const phone = '+15551234567';
+  let conversationCreated = false;
+  const request = await fixture(async (sql, values) => {
+    if (sql.startsWith('INSERT INTO CONTATO')) {
+      assert.deepEqual(values, [phone]);
+      return [{ affectedRows: 1 }, []];
+    }
+    if (sql === 'SELECT id_contato FROM CONTATO WHERE telefone = ? FOR UPDATE') return [[{ id_contato: 9 }], []];
+    if (sql.startsWith('INSERT INTO CONVERSA')) {
+      conversationCreated = true;
+      return [{ insertId: 12 }, []];
+    }
+    if (sql === 'SELECT id_conversa FROM CONVERSA WHERE FK_CONTATO_id_contato = ? FOR UPDATE') {
+      assert.deepEqual(values, [9]);
+      return [conversationCreated ? [{ id_conversa: 12 }] : [], []];
+    }
+    if (sql.includes('FROM CONVERSA v') && sql.includes('WHERE v.id_conversa = ?')) {
+      return [[{
+        id_conversa: 12,
+        criada_em: '2026-01-01',
+        id_contato: 9,
+        telefone: phone,
+        nome: null,
+        email: null,
+        id_atendimento_aberto: null,
+        status_atendimento: null,
+        iniciado_em: null,
+        prazo_retorno: null,
+        ultima_mensagem_em: null,
+      }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const first = await request('/api/conversas', json({ telefone: phone }));
+  const repeated = await request('/api/conversas', json({ telefone: phone }));
+  assert.equal(first.status, 201);
+  assert.equal(repeated.status, 200);
+  assert.equal(((await repeated.json()) as { data: { id_conversa: number } }).data.id_conversa, 12);
+});
+
+test('conversation and attendance routes reject invalid identifiers and fields before database work', async () => {
+  let calls = 0;
+  const request = await fixture(async () => { calls++; return [[], []]; });
+  assert.equal((await request('/api/conversas?telefone=12345')).status, 400);
+  assert.equal((await request('/api/conversas', json({ telefone: '12345' }))).status, 400);
+  assert.equal((await request('/api/conversas/nope/atendimentos', json({}))).status, 400);
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'waiting' }, 'PATCH'))).status, 400);
+  assert.equal(calls, 0);
+});
+
+test('opening an attendance creates a cycle and rejects a second open cycle', async () => {
+  let open = false;
+  const request = await fixture(async (sql) => {
+    if (sql.includes('SELECT id_conversa FROM CONVERSA')) return [[{ id_conversa: 12 }], []];
+    if (sql.startsWith('SELECT id_atendimento FROM ATENDIMENTO')) {
+      return [open ? [{ id_atendimento: 22 }] : [], []];
+    }
+    if (sql.startsWith('INSERT INTO ATENDIMENTO')) {
+      open = true;
+      return [{ insertId: 22 }, []];
+    }
+    if (sql.includes('SELECT id_atendimento, status, iniciado_em')) {
+      return [[{
+        id_atendimento: 22,
+        status: 'open',
+        iniciado_em: '2026-01-02 10:00:00',
+        encerrado_em: null,
+        prazo_retorno: null,
+        FK_CONVERSA_id_conversa: 12,
+      }], []];
+    }
+    if (sql.includes('FROM ATRIBUICAO a')) return [[], []];
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+  const opened = await request('/api/conversas/12/atendimentos', json({}));
+  assert.equal(opened.status, 201);
+  assert.equal(((await opened.json()) as { data: { id_atendimento: number } }).data.id_atendimento, 22);
+  const duplicate = await request('/api/conversas/12/atendimentos', json({}));
+  assert.equal(duplicate.status, 409);
+});
+
+test('attendance close is persisted and a closed cycle cannot be reopened', async () => {
+  let closed = false;
+  const request = await fixture(async (sql, values) => {
+    if (sql.includes('SELECT id_atendimento, status, iniciado_em')) {
+      return [[{
+        id_atendimento: 22,
+        status: closed ? 'closed' : 'open',
+        iniciado_em: '2026-01-02 10:00:00',
+        encerrado_em: closed ? '2026-01-02 11:00:00' : null,
+        prazo_retorno: null,
+        FK_CONVERSA_id_conversa: 12,
+      }], []];
+    }
+    if (sql.startsWith('UPDATE ATENDIMENTO')) {
+      assert.match(sql, /status = 'closed'/);
+      assert.deepEqual(values, [22]);
+      closed = true;
+      return [{ affectedRows: 1 }, []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'closed' }, 'PATCH'))).status, 204);
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'open' }, 'PATCH'))).status, 409);
+});
+
+test('attendance deadlines reject invalid calendar dates before querying the database', async () => {
+  let calls = 0;
+  const request = await fixture(async () => { calls++; return [[], []]; });
+  const response = await request(
+    '/api/atendimentos/22',
+    json({ prazo_retorno: '2026-02-30T10:00:00Z' }, 'PATCH'),
+  );
+  assert.equal(response.status, 400);
+  assert.equal(calls, 0);
+});
+
+test('multiple attendance responsible users are allowed and duplicate active assignment is idempotent', async () => {
+  const activeUsers = new Set<number>();
+  const request = await fixture(async (sql, values) => {
+    if (sql.includes('SELECT id_atendimento, status, iniciado_em') && sql.includes('FOR UPDATE')) {
+      return [[{
+        id_atendimento: 22,
+        status: 'open',
+        iniciado_em: '2026-01-02 10:00:00',
+        encerrado_em: null,
+        prazo_retorno: null,
+        FK_CONVERSA_id_conversa: 12,
+      }], []];
+    }
+    if (sql.startsWith('SELECT id_usuario FROM USUARIO')) return [[{ id_usuario: Number(values?.[0]) }], []];
+    if (sql.includes('FROM ATRIBUICAO') && sql.includes('encerrada_em IS NULL')) {
+      return [activeUsers.has(Number(values?.[1])) ? [{ id_atribuicao: Number(values?.[1]) }] : [], []];
+    }
+    if (sql.startsWith('INSERT INTO ATRIBUICAO')) {
+      const userId = Number(values?.[0]);
+      activeUsers.add(userId);
+      return [{ insertId: userId + 100 }, []];
+    }
+    if (sql.includes('FROM ATRIBUICAO a JOIN USUARIO')) {
+      const id = Number(values?.[0]);
+      return [[{
+        id_atribuicao: id,
+        iniciada_em: '2026-01-02 10:30:00',
+        encerrada_em: null,
+        FK_USUARIO_id_usuario: id - 100,
+        nome: `User ${id - 100}`,
+        email: `user${id - 100}@example.com`,
+        perfil: 'atendente',
+        FK_ATENDIMENTO_id_atendimento: 22,
+      }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+  const first = await request('/api/atendimentos/22/atribuicoes', json({ usuarioId: 5 }));
+  const second = await request('/api/atendimentos/22/atribuicoes', json({ usuarioId: 6 }));
+  const duplicate = await request('/api/atendimentos/22/atribuicoes', json({ usuarioId: 5 }));
+  assert.equal(first.status, 201);
+  assert.equal(second.status, 201);
+  assert.equal(duplicate.status, 204);
+  assert.equal(activeUsers.size, 2);
+});
+
+test('conversation labels can be added repeatedly and removed without deleting the label', async () => {
+  let associated = false;
+  const request = await fixture(async (sql) => {
+    if (sql.startsWith('SELECT id_conversa FROM CONVERSA')) return [[{ id_conversa: 12 }], []];
+    if (sql.startsWith('SELECT id_etiqueta FROM ETIQUETA')) return [[{ id_etiqueta: 4 }], []];
+    if (sql.includes('FROM ETIQUETA e')) {
+      return [associated ? [{ id_etiqueta: 4, nome: 'VIP', cor: '#123456' }] : [], []];
+    }
+    if (sql.startsWith('INSERT INTO marca')) {
+      assert.match(sql, /ON DUPLICATE KEY UPDATE/);
+      associated = true;
+      return [{ affectedRows: 1 }, []];
+    }
+    if (sql.startsWith('DELETE FROM marca')) {
+      const affectedRows = associated ? 1 : 0;
+      associated = false;
+      return [{ affectedRows }, []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+  assert.equal((await request('/api/conversas/12/etiquetas/4', { method: 'PUT' })).status, 204);
+  assert.equal((await request('/api/conversas/12/etiquetas/4', { method: 'PUT' })).status, 204);
+  assert.equal((await request('/api/conversas/12/etiquetas')).status, 200);
+  assert.equal((await request('/api/conversas/12/etiquetas/4', { method: 'DELETE' })).status, 204);
+});
+
+test('removing an assignment closes its interval without deleting its history', async () => {
+  let closed = false;
+  const request = await fixture(async (sql, values) => {
+    if (sql.startsWith('SELECT id_atribuicao FROM ATRIBUICAO')) {
+      assert.deepEqual(values, [105]);
+      return [[{ id_atribuicao: 105 }], []];
+    }
+    if (sql.startsWith('UPDATE ATRIBUICAO')) {
+      assert.match(sql, /COALESCE\(encerrada_em, UTC_TIMESTAMP\(\)\)/);
+      assert.deepEqual(values, [105]);
+      closed = true;
+      return [{ affectedRows: 1 }, []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+  assert.equal((await request('/api/atribuicoes/105', { method: 'DELETE' })).status, 204);
+  assert.equal(closed, true);
 });
 
 test('database errors do not expose SQL or credentials', async () => {

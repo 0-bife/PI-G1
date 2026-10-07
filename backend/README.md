@@ -1,6 +1,6 @@
 # InAblink API
 
-Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp, autenticação, contatos e etiquetas estão implementados; conversas, atendimentos e mensagens são as próximas rotas de negócio. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
+Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp, autenticação, contatos, etiquetas, conversas, atendimentos e responsáveis estão implementados; consultas de mensagens e anotações são as próximas rotas de negócio. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
 
 ## Executar localmente
 
@@ -101,15 +101,15 @@ Configure `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha-o fora do 
 
 | Método e rota | Acesso | Contrato |
 | --- | --- | --- |
-| `GET /api/conversas?page=1&limit=20&telefone=...` | Autenticado | Lista conversas, contato, atendimento aberto, responsáveis ativos e timestamp da mensagem mais recente. |
-| `POST /api/conversas` | Atendente/admin | Body `{ "telefone": "+5511999999999" }`; cria contato somente com telefone se necessário e cria/reutiliza sua conversa. |
+| `GET /api/conversas?page=1&limit=20&telefone=...` | Autenticado | Lista conversas, contato, atendimento aberto, responsáveis ativos e timestamp da mensagem mais recente. Codifique o `+` do telefone como `%2B` na query string. |
+| `POST /api/conversas` | Atendente/admin | Body `{ "telefone": "+5511999999999" }`; cria contato somente com telefone se necessário e cria/reutiliza sua conversa. Retorna `201` para nova conversa ou `200` quando ela já existe. |
 | `GET /api/conversas/:id` | Autenticado | Consulta conversa com contato e resumo do atendimento. |
 | `GET /api/conversas/:id/mensagens?page=1&limit=20` | Autenticado | Lista mensagens cronologicamente por `data_hora`. |
 | `GET /api/conversas/:id/atendimentos` | Autenticado | Lista ciclos, mais recente primeiro, e suas atribuições. |
-| `POST /api/conversas/:id/atendimentos` | Atendente/admin | Abre ciclo (`status: "open"`, `iniciado_em` atual); conflito se já houver um aberto. |
-| `PATCH /api/atendimentos/:id` | Atendente/admin | Altera status/prazo ou encerra com `status: "closed"` e `encerrado_em` atual. Ciclo encerrado não é reaberto; cria-se outro. |
+| `POST /api/conversas/:id/atendimentos` | Atendente/admin | Body vazio; abre ciclo (`status: "open"`, `iniciado_em` atual); conflito se já houver um aberto. O bloqueio transacional da conversa serializa aberturas concorrentes. |
+| `PATCH /api/atendimentos/:id` | Atendente/admin | Altera status (`open`/`closed`) e/ou `prazo_retorno` RFC 3339 (ou `null`); encerrar grava `encerrado_em` atual. Ciclo encerrado não é reaberto; cria-se outro. |
 | `GET /api/atendimentos/:id/atribuicoes` | Autenticado | Lista atribuições ativas e encerradas; prioridade é a ativa mais recente. |
-| `POST /api/atendimentos/:id/atribuicoes` | Atendente/admin | Body `{ "usuarioId": 45 }`; cria acompanhamento para esse funcionário. Se já ativo, retorna sucesso sem duplicar nem mudar prioridade. |
+| `POST /api/atendimentos/:id/atribuicoes` | Atendente/admin | Body `{ "usuarioId": 45 }`; cria acompanhamento para usuário ativo. Retorna `201` ao criar e `204` se a atribuição já estiver ativa, sem duplicar nem mudar prioridade. Vários responsáveis podem permanecer ativos simultaneamente. |
 | `DELETE /api/atribuicoes/:id` | Atendente/admin | Encerra atribuição preenchendo `encerrada_em`, não apaga a linha. |
 | `GET /api/conversas/:id/etiquetas` | Autenticado | Lista etiquetas comuns da conversa. |
 | `PUT /api/conversas/:id/etiquetas/:etiquetaId` | Atendente/admin | Associa etiqueta comum; idempotente. |
