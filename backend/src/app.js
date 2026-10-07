@@ -1,11 +1,12 @@
 import express from 'express';
+import { timingSafeEqual } from 'node:crypto';
+import { MessageService, WhatsAppDeliveryError } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
 
 const resources = {
   contatos: { table: 'CONTATO', id: 'id_contato', fields: ['nome', 'telefone', 'email'], required: ['nome', 'telefone'] },
   etiquetas: { table: 'ETIQUETA', id: 'id_etiqueta', fields: ['nome', 'cor'], required: ['nome'] },
-  conversas: { table: 'CONVERSA', id: 'id_conversa', fields: [], required: [] },
-  mensagens: { table: 'MENSAGEM', id: 'id_mensagem', fields: ['conteudo', 'origem', 'status', 'tipo', 'referencia_midia'], required: ['conteudo', 'origem', 'tipo'] },
+  conversas: { table: 'CONVERSA', id: 'id_conversa', fields: [], required: [], deletable: false },
 };
 
 function fail(message) {
@@ -36,12 +37,37 @@ function validate(body, resource, partial) {
   }
   if (!partial && resource.required.some((key) => !result[key])) throw fail(`Required fields: ${resource.required.join(', ')}.`);
   if (!partial && resource.fields.length && !Object.keys(result).length) throw fail('At least one field is required.');
+  if (partial && !Object.keys(result).length) throw fail('At least one field is required.');
   return result;
 }
 
-export function createApp(db, logger = console, whatsappClient = new WhatsAppClient()) {
+function matchesToken(actual, expected) {
+  if (!actual || !expected) return false;
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function e164(value) {
+  return typeof value === 'string' && /^\+[1-9]\d{7,14}$/.test(value);
+}
+
+export function createApp(db, logger = console, whatsappClient = new WhatsAppClient(), config = process.env) {
   const app = express();
   app.disable('x-powered-by');
+  const messages = new MessageService(db, whatsappClient, logger);
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/webhook/whatsapp') return next();
+    if (!config.API_ACCESS_TOKEN) {
+      return res.status(503).json({ error: 'API authentication is not configured.' });
+    }
+    const match = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+    if (!matchesToken(match?.[1], config.API_ACCESS_TOKEN)) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    return next();
+  });
+  app.use('/api/webhook/whatsapp', express.raw({ type: 'application/json', limit: '3mb' }));
   app.use(express.json({ limit: '32kb' }));
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
   app.get('/health/ready', async (_req, res) => {
@@ -53,49 +79,65 @@ export function createApp(db, logger = console, whatsappClient = new WhatsAppCli
     }
   });
 
-  // WhatsApp Webhook Endpoints
   app.get('/api/webhook/whatsapp', (req, res) => {
+    if (!whatsappClient.verifyToken) {
+      return res.status(503).json({ error: 'Webhook verification is not configured.' });
+    }
     try {
       const mode = req.query['hub.mode'];
       const token = req.query['hub.verify_token'];
       const challenge = req.query['hub.challenge'];
-      const challengeResponse = whatsappClient.verifyWebhook(mode, token, challenge);
-      res.status(200).send(challengeResponse);
-    } catch (err) {
-      res.status(403).json({ error: err.message });
+      return res.status(200).type('text/plain').send(whatsappClient.verifyWebhook(mode, token, challenge));
+    } catch {
+      return res.status(403).json({ error: 'Webhook verification failed.' });
     }
   });
 
   app.post('/api/webhook/whatsapp', async (req, res) => {
+    if (!whatsappClient.appSecret) {
+      return res.status(503).json({ error: 'Webhook signature validation is not configured.' });
+    }
+    if (!whatsappClient.verifyWebhookSignature(req.body, req.get('x-hub-signature-256'))) {
+      return res.status(401).json({ error: 'Invalid webhook signature.' });
+    }
     try {
-      const parsed = whatsappClient.parseIncomingWebhook(req.body);
-      if (parsed) {
-        // Automatically store incoming message in DB
-        await db.execute(
-          'INSERT INTO MENSAGEM (conteudo, origem, status, tipo, data_hora) VALUES (?, ?, ?, ?, NOW())',
-          [parsed.text, 'whatsapp', 'received', parsed.type]
-        );
+      let payload;
+      try {
+        payload = JSON.parse(req.body.toString('utf8'));
+      } catch {
+        return res.status(400).json({ error: 'Invalid webhook JSON.' });
       }
-      res.status(200).json({ status: 'received' });
-    } catch (err) {
-      logger.error('Webhook error:', err);
-      res.status(500).json({ error: 'Failed to process webhook' });
+      const result = await messages.processWebhook(payload);
+      return res.status(200).json({ status: 'received', ...result });
+    } catch (error) {
+      if (error.status === 400) return res.status(400).json({ error: error.message });
+      logger.error('WhatsApp webhook processing failed.', { code: error.code || 'INTERNAL_ERROR' });
+      return res.status(500).json({ error: 'Failed to process webhook.' });
     }
   });
 
-  // Send message endpoint
-  app.post('/api/messages/send', async (req, res) => {
+  app.post('/api/mensagens/enviar', async (req, res) => {
+    const { telefone, tipo, conteudo } = req.body ?? {};
+    if (Object.keys(req.body ?? {}).some((key) => !['telefone', 'tipo', 'conteudo'].includes(key))
+      || !e164(telefone)
+      || tipo !== 'text'
+      || typeof conteudo !== 'string'
+      || !conteudo.trim()
+      || [...conteudo.trim()].length > 2048) {
+      return res.status(400).json({ error: 'Provide an E.164 phone, type "text", and non-empty text up to 2048 characters.' });
+    }
+    if (!whatsappClient.accessToken || !whatsappClient.phoneNumberId || !whatsappClient.graphApiVersion) {
+      return res.status(503).json({ error: 'WhatsApp sending is not configured.' });
+    }
     try {
-      const { to, text } = req.body;
-      if (!to || !text) return res.status(400).json({ error: 'Recipient "to" and "text" are required.' });
-      const result = await whatsappClient.sendMessage(to, text);
-      await db.execute(
-        'INSERT INTO MENSAGEM (conteudo, origem, status, tipo, data_hora) VALUES (?, ?, ?, ?, NOW())',
-        [text, 'api', 'sent', 'text']
-      );
-      res.json({ status: 'sent', data: result });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+      const data = await messages.sendText({ phone: telefone, text: conteudo.trim() });
+      return res.status(202).json({ data });
+    } catch (error) {
+      if (error instanceof WhatsAppDeliveryError) {
+        return res.status(502).json({ error: 'WhatsApp provider rejected the message.' });
+      }
+      logger.error('WhatsApp message processing failed.', { code: error.code || 'INTERNAL_ERROR' });
+      return res.status(500).json({ error: 'Failed to send message.' });
     }
   });
 
@@ -137,17 +179,20 @@ export function createApp(db, logger = console, whatsappClient = new WhatsAppCli
         res.status(204).end();
       });
     }
-    app.delete(`${route}/:id`, async (req, res) => {
-      const value = positiveInteger(req.params.id, 'id');
-      const [result] = await db.execute(`DELETE FROM ${table} WHERE ${id} = ?`, [value]);
-      if (!result.affectedRows) return res.status(404).json({ error: 'Resource not found.' });
-      res.status(204).end();
-    });
+    if (resource.deletable !== false) {
+      app.delete(`${route}/:id`, async (req, res) => {
+        const value = positiveInteger(req.params.id, 'id');
+        const [result] = await db.execute(`DELETE FROM ${table} WHERE ${id} = ?`, [value]);
+        if (!result.affectedRows) return res.status(404).json({ error: 'Resource not found.' });
+        res.status(204).end();
+      });
+    }
   }
   app.use((_req, res) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error, _req, res, _next) => {
     if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid JSON.' });
     if (error.type === 'entity.too.large') return res.status(413).json({ error: 'Request body too large.' });
+    if (error.status === 413) return res.status(413).json({ error: 'Request body too large.' });
     if (error.status === 400) return res.status(400).json({ error: error.message });
     if (['ER_DUP_ENTRY', 'ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(error.code)) {
       return res.status(409).json({ error: 'Database constraint conflict.' });

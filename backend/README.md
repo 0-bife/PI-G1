@@ -1,6 +1,6 @@
 # InAblink API
 
-Especificação-alvo do backend Node.js 22+, Express e MySQL. Este contrato orienta a próxima etapa de implementação; as rotas descritas ainda não estão todas implementadas. O SQL-base é `../BD/modelo_fisico_corrigido.sql`, sujeito aos ajustes documentados em [Banco de dados](#banco-de-dados).
+Especificação do backend Node.js 22+, Express e MySQL. O fluxo inicial do WhatsApp está implementado; as demais rotas são o contrato-alvo para próximas etapas. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
 
 ## Executar localmente
 
@@ -13,6 +13,18 @@ npm run dev
 ```
 
 Configure `.env` com credenciais locais. `npm start` inicia sem watch. O servidor não executa migrações automaticamente. Não disponibilize externamente antes de configurar autenticação, autorização e HTTPS.
+
+## Primeira fatia implementada
+
+O primeiro fluxo implementado é WhatsApp de texto, sem frontend:
+
+- `GET /api/webhook/whatsapp` valida `WHATSAPP_VERIFY_TOKEN` e devolve o challenge da Meta.
+- `POST /api/webhook/whatsapp` valida `X-Hub-Signature-256` com `WHATSAPP_APP_SECRET`, percorre eventos `messages` e `statuses`, cria/reutiliza contato e conversa pelo telefone, abre atendimento se necessário e grava mensagens/status no MySQL. IDs de mensagem e eventos repetidos são deduplicados.
+- `POST /api/mensagens/enviar` recebe `{ "telefone": "+15551234567", "tipo": "text", "conteudo": "..." }`, cria contato/conversa/atendimento se necessário, persiste o estado `pending`, envia pela Graph API e atualiza o estado com o ID retornado. Retorna `202` quando a Meta aceita a mensagem.
+- Rotas `/api/*` fora do webhook exigem `Authorization: Bearer <API_ACCESS_TOKEN>`. Este token compartilhado é uma proteção provisória para integração/teste, não autenticação individual nem autorização por perfil; não publicar a API para usuários finais com esse mecanismo.
+- Como ainda não há login, o token compartilhado não identifica um funcionário específico; mensagens de saída ficam com `origem = 'usuario'` e FK de usuário nula. Implementar autenticação individual para preencher a autoria real antes do uso por vários atendentes.
+
+O restante das rotas descritas neste contrato continua como especificação futura. O webhook responde `200` somente após commit; estados que chegarem antes do ID de saída ser salvo ficam temporariamente em `WHATSAPP_STATUS_PENDENTE` e são aplicados ao correlacionar o ID. Falhas reais da Meta e do MySQL ainda devem ser validadas em homologação; a suíte não envia mensagens externas.
 
 ## Regras do domínio
 
@@ -121,7 +133,7 @@ Para todos os itens `statuses[]`: localizar mensagem pelo ID externo, atualizar 
 
 ## Banco de dados
 
-Usar `../BD/modelo_fisico_corrigido.sql` como base e consolidar as alterações abaixo nesse arquivo antes de depender dele. O backend não cria nem altera tabelas automaticamente.
+`../BD/modelo_fisico_corrigido.sql` contém o esquema completo esperado para instalação em banco vazio, incluindo os ajustes abaixo. O backend não cria nem altera tabelas automaticamente. **Não reaplique o script em um banco existente**: prepare uma migração de dados e valide-a antes de atualizar o MySQL da Azure.
 
 | Tabela/coluna | Requisito de esquema |
 | --- | --- |
@@ -133,6 +145,7 @@ Usar `../BD/modelo_fisico_corrigido.sql` como base e consolidar as alterações 
 | `MENSAGEM.id_externo` | `VARCHAR(255) NULL UNIQUE`; compatível com `wamid` e deduplicação de mensagens. |
 | `MENSAGEM.FK_USUARIO_id_usuario` | Opcional: nulo para contato/chatbot, funcionário autenticado para envio manual. Origem: `contato`, `usuario` ou `chatbot`. |
 | `MENSAGEM_STATUS_HISTORICO` | Manter FK obrigatória e índice por mensagem/data. Registrar estado inicial e cada transição juntamente com atualização do estado atual. |
+| `WHATSAPP_STATUS_PENDENTE` | Guardar temporariamente status Meta recebido antes de persistir o ID da mensagem enviada; chave única por ID externo, status e timestamp. |
 | `ANOTACAO_INTERNA` | FK de conversa obrigatória e FK de autor `FK_USUARIO_id_usuario NOT NULL`; indexar conversa/data. |
 | `ATRIBUICAO` | Manter FKs obrigatórias para usuário e atendimento; várias atribuições ativas são válidas. Impedir duplicata ativa do mesmo usuário/atendimento em transação. |
 | `USUARIO` | Adicionar perfil/role (`admin`, `atendente`) para autorização definida por RN01. Desativar usuários em vez de excluí-los. |
@@ -155,14 +168,14 @@ WHATSAPP_ACCESS_TOKEN=
 WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_VERIFY_TOKEN=
 WHATSAPP_APP_SECRET=
-WHATSAPP_API_VERSION=v19.0
+WHATSAPP_API_VERSION=
 ```
 
-Não usar token padrão em produção. Nunca registrar segredos nos logs ou respostas.
+Defina `WHATSAPP_API_VERSION` para uma versão Graph ainda suportada pela aplicação Meta. `API_ACCESS_TOKEN`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos; use o armazenamento de segredos da Azure em produção. Nunca registrá-los em logs ou respostas.
 
 ## Testes
 
-Usar **Vitest** como runner dos testes do backend; não usar o test runner embutido do Node.js. A etapa de implementação deve adicionar Vitest às dependências de desenvolvimento do `backend/package.json` e configurar o script `test` para executar `vitest run`.
+Usar **Vitest** como runner dos testes do backend; não usar o test runner embutido do Node.js. O script `test` executa `vitest run`.
 
 Com esse script, executar na pasta `backend`:
 
@@ -172,4 +185,24 @@ npm test -- test/app.test.js
 npm test -- test/app.test.js -t "webhook"
 ```
 
-O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Criar testes para rotas, perfis de acesso, transações/FKs, upsert por telefone nos dois sentidos, webhook com múltiplos eventos, assinatura, deduplicação, status, reabertura de atendimento e falhas da Meta/banco. Atualizar o conjunto atual, escrito para `node:test`, para Vitest. Não existem scripts de build ou lint configurados.
+O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem o webhook simulado, assinatura, deduplicação, envio Graph API simulado, persistência simulada e rotas existentes; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. Não existem scripts de build ou lint configurados.
+
+### Smoke test manual sem frontend
+
+Depois de configurar a callback Meta para o endereço HTTPS do serviço, usar um telefone de teste permitido pela configuração Meta:
+
+```powershell
+$headers = @{ Authorization = "Bearer $env:API_ACCESS_TOKEN" }
+$body = @{
+  telefone = "+15551234567"
+  tipo = "text"
+  conteudo = "Teste de integração InAblink"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post `
+  -Uri "https://<host-azure>/api/mensagens/enviar" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+O telefone acima é ilustrativo: substitua-o por um número de teste que possa receber mensagens do número Meta configurado e que tenha consentido. Confirme o recebimento no WhatsApp e confira `CONTATO`, `CONVERSA`, `ATENDIMENTO`, `MENSAGEM` e `MENSAGEM_STATUS_HISTORICO` no MySQL. Para o fluxo de entrada, envie uma mensagem do telefone de teste ao número WhatsApp da empresa e confirme que o webhook criou/reutilizou contato/conversa e persistiu a mensagem. Não faça esses smoke tests apontando para produção.

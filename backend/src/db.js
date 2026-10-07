@@ -24,6 +24,7 @@ export function createDatabase(env = process.env) {
     connectionLimit: 10,
     queueLimit: 50,
     connectTimeout: 5000,
+    timezone: 'Z',
     dateStrings: true,
     charset: 'utf8mb4',
   });
