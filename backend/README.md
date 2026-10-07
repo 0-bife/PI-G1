@@ -18,18 +18,6 @@ Configure `.env` com credenciais locais, incluindo `JWT_SECRET` com pelo menos 3
 
 O backend e seus testes são escritos em TypeScript. `npm run dev` executa os fontes com watch; `npm run build` compila os módulos ESM para `dist/`; `npm start` inicia essa compilação. A pasta `dist/` é gerada e não deve ser versionada.
 
-## Histórico da primeira fatia WhatsApp
-
-O bloco abaixo registra a primeira fatia WhatsApp, anterior à implementação de login:
-
-- `GET /api/webhook/whatsapp` valida `WHATSAPP_VERIFY_TOKEN` e devolve o challenge da Meta.
-- `POST /api/webhook/whatsapp` valida `X-Hub-Signature-256` com `WHATSAPP_APP_SECRET`, percorre eventos `messages` e `statuses`, cria/reutiliza contato e conversa pelo telefone, abre atendimento se necessário e grava mensagens/status no MySQL. IDs de mensagem e eventos repetidos são deduplicados.
-- `POST /api/mensagens/enviar` recebe `{ "telefone": "+15551234567", "tipo": "text", "conteudo": "..." }`, cria contato/conversa/atendimento se necessário, persiste o estado `pending`, envia pela Graph API e atualiza o estado com o ID retornado. Retorna `202` quando a Meta aceita a mensagem.
-- Rotas `/api/*` fora do webhook exigem `Authorization: Bearer <API_ACCESS_TOKEN>`. Este token compartilhado é uma proteção provisória para integração/teste, não autenticação individual nem autorização por perfil; não publicar a API para usuários finais com esse mecanismo.
-- Como ainda não há login, o token compartilhado não identifica um funcionário específico; mensagens de saída ficam com `origem = 'usuario'` e FK de usuário nula. Implementar autenticação individual para preencher a autoria real antes do uso por vários atendentes.
-
-O restante das rotas descritas neste contrato continua como especificação futura. O webhook responde `200` somente após commit; estados que chegarem antes do ID de saída ser salvo ficam temporariamente em `WHATSAPP_STATUS_PENDENTE` e são aplicados ao correlacionar o ID. Falhas reais da Meta e do MySQL ainda devem ser validadas em homologação; a suíte não envia mensagens externas.
-
 ## Autenticação JWT atual
 
 `POST /api/auth/login` emite JWT Bearer assinado com HS256 e validade de 12 horas para usuário ativo. Todas as rotas `/api/*`, exceto login e webhook Meta, exigem `Authorization: Bearer <accessToken>`. Cada requisição valida assinatura/expiração e consulta `AUTH_SESSAO` junto ao estado e perfil atuais do usuário.
@@ -39,6 +27,96 @@ O restante das rotas descritas neste contrato continua como especificação futu
 No navegador, guardar o JWT em `sessionStorage`, não em `localStorage`; enviar o bearer token em cada chamada e limpar o armazenamento após logout ou `401`. Fechar a aba remove o token daquela sessão do navegador, mas não garante aviso ao servidor: a sessão remota permanece até o logout explícito, troca de senha, desativação da conta ou expiração de 12 horas.
 
 Configure `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha-o fora do repositório. Para provisionar o primeiro administrador em um banco vazio, compile com `npm run build`, defina temporariamente `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` apenas no ambiente do processo e execute `npm run admin:create`. O comando recusa banco `USUARIO` não vazio e armazena somente hash; remova as variáveis após a execução.
+
+### Integração com o frontend
+
+Defina `API_BASE_URL` como a origem da API (`https://api.example.com`) na configuração de ambiente do frontend; não embuta tokens, senhas ou segredos no bundle. Se a interface estiver em outra origem, configure `CORS_ORIGINS` no backend com origens exatas separadas por vírgula, incluindo protocolo e porta quando necessário (por exemplo, `http://localhost:5173,https://front.example.com`). Não use `*`; o backend não usa cookies nem `Access-Control-Allow-Credentials`.
+
+Centralize autenticação, respostas `204` e erros `401` num cliente HTTP. Exemplo TypeScript independente de framework (a origem deve ser injetada na inicialização da aplicação):
+
+```ts
+declare global {
+  interface Window {
+    INABLINK_CONFIG?: { API_BASE_URL: string };
+  }
+}
+
+const API_BASE_URL = window.INABLINK_CONFIG?.API_BASE_URL.replace(/\/$/, '');
+if (!API_BASE_URL) throw new Error('API_BASE_URL não configurada.');
+
+const TOKEN_KEY = 'inablink.accessToken';
+
+async function api<T>(
+  path: string,
+  options: RequestInit = {},
+  authenticated = true,
+): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body !== undefined && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (authenticated) {
+    const token = sessionStorage.getItem(TOKEN_KEY);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+  if (response.status === 401) {
+    sessionStorage.removeItem(TOKEN_KEY);
+    window.location.assign('/login');
+    throw new Error('Sessão expirada ou revogada.');
+  }
+  let payload: { data?: T; error?: string } = {};
+  if (response.status !== 204) {
+    try {
+      payload = await response.json();
+    } catch {
+      payload = {};
+    }
+  }
+  if (!response.ok) throw new Error(payload.error ?? `HTTP ${response.status}`);
+  return payload.data as T;
+}
+```
+
+O login envia `{ email, senha }` a `POST /api/auth/login` sem Bearer e grava `data.accessToken` em `sessionStorage`; use `data.user` para nome/perfil da interface. Exemplo:
+
+```ts
+interface LoginResponse {
+  accessToken: string;
+  tokenType: 'Bearer';
+  expiresIn: number;
+  user: { id_usuario: number; nome: string; email: string; perfil: 'admin' | 'atendente' };
+}
+
+const session = await api<LoginResponse>(
+  '/api/auth/login',
+  { method: 'POST', body: JSON.stringify({ email, senha }) },
+  false,
+);
+sessionStorage.setItem(TOKEN_KEY, session.accessToken);
+```
+
+Na inicialização/reload, consulte `GET /api/auth/me`. O token dura 12 horas e deve ser tratado como opaco; a validação final e o perfil vêm sempre do backend.
+
+No logout, envie `POST /api/auth/logout` enquanto o token ainda está disponível e remova-o localmente mesmo se a chamada falhar:
+
+```ts
+async function logout(): Promise<void> {
+  try {
+    await api<void>('/api/auth/logout', { method: 'POST' });
+  } finally {
+    sessionStorage.removeItem(TOKEN_KEY);
+    window.location.assign('/login');
+  }
+}
+```
+
+Se a rede falhar, o cliente limpou o token, mas a sessão do servidor não foi revogada e expirará em até 12 horas. Fechar a aba não garante chamada ao servidor; não tente usar `beforeunload` para revogação. A troca de senha envia `{ senha_atual, nova_senha }` a `PATCH /api/auth/password`; após `204`, a API revogou todas as sessões, então limpe a cópia local e volte ao login.
+
+Fluxo sugerido de telas: `/login` valida credenciais e guarda o token; a área autenticada carrega `/api/conversas?page=1&limit=20`; a seleção de conversa carrega `/api/conversas/:id/mensagens?page=1&limit=20`, responsáveis e etiquetas; envio de texto usa `POST /api/conversas/:id/mensagens`; histórico de entrega usa `/api/mensagens/:id/status`. Exiba anotações de `/api/conversas/:id/anotacoes` em área interna distinta das mensagens WhatsApp. Uma tela de troca de senha autenticada deve exigir senha atual e nova senha. O frontend não deve permitir editar/apagar mensagens nem atribuir autoria via body.
+
+Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. Esta etapa documenta o contrato: `Front-End/` ainda não tem aplicação/telas configuradas e nenhuma UI é criada aqui.
 
 ## Regras do domínio
 
@@ -181,6 +259,7 @@ DB_USER=inablink
 DB_PASSWORD=change-me
 DB_NAME=inablink
 JWT_SECRET=
+CORS_ORIGINS=
 DB_SSL=false
 DB_SSL_CA=
 WHATSAPP_ACCESS_TOKEN=
@@ -206,7 +285,7 @@ npm run typecheck
 npm run build
 ```
 
-O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem o webhook simulado, assinatura, deduplicação, envio Graph API simulado, persistência simulada e rotas existentes; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. O type-check/build não substituem a suíte Vitest.
+O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem autenticação, APIs de contatos/conversas/mensagens/anotações, CORS, webhook simulado, assinatura, deduplicação e envio Graph API simulado; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. O type-check/build não substituem a suíte Vitest.
 
 ### Smoke test manual com JWT
 
@@ -231,23 +310,3 @@ Invoke-RestMethod -Method Post `
 ```
 
 Use um número de teste permitido pela configuração Meta e que tenha consentido. Essa chamada não deve apontar para produção durante homologação.
-
-### Exemplo legado de smoke test (token compartilhado; não usar)
-
-Depois de configurar a callback Meta para o endereço HTTPS do serviço, usar um telefone de teste permitido pela configuração Meta:
-
-```powershell
-$headers = @{ Authorization = "Bearer $env:API_ACCESS_TOKEN" }
-$body = @{
-  telefone = "+15551234567"
-  tipo = "text"
-  conteudo = "Teste de integração InAblink"
-} | ConvertTo-Json
-Invoke-RestMethod -Method Post `
-  -Uri "https://<host-azure>/api/mensagens/enviar" `
-  -Headers $headers `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-O telefone acima é ilustrativo: substitua-o por um número de teste que possa receber mensagens do número Meta configurado e que tenha consentido. Confirme o recebimento no WhatsApp e confira `CONTATO`, `CONVERSA`, `ATENDIMENTO`, `MENSAGEM` e `MENSAGEM_STATUS_HISTORICO` no MySQL. Para o fluxo de entrada, envie uma mensagem do telefone de teste ao número WhatsApp da empresa e confirme que o webhook criou/reutilizou contato/conversa e persistiu a mensagem. Não faça esses smoke tests apontando para produção.

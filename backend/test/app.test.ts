@@ -26,7 +26,10 @@ interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
   headers?: Record<string, string>;
 }
 
-async function fixture(execute: (sql: string, values?: unknown[]) => Promise<unknown>) {
+async function fixture(
+  execute: (sql: string, values?: unknown[]) => Promise<unknown>,
+  corsOrigins = '',
+) {
   const token = await new SignJWT({ jti: 'test-session-id' })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject('1')
@@ -60,7 +63,7 @@ async function fixture(execute: (sql: string, values?: unknown[]) => Promise<unk
     db as unknown as Pool,
     { error() {}, warn() {} },
     undefined,
-    { JWT_SECRET: jwtSecret },
+    { JWT_SECRET: jwtSecret, CORS_ORIGINS: corsOrigins },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
@@ -78,6 +81,32 @@ test('liveness does not need MySQL; readiness reports failure', async () => {
   const request = await fixture(async () => { throw new Error('offline'); });
   assert.equal((await request('/health')).status, 200);
   assert.equal((await request('/health/ready')).status, 503);
+});
+
+test('CORS preflight allows only explicitly configured frontend origins', async () => {
+  const request = await fixture(async () => { throw new Error('CORS must finish before database access.'); }, 'https://front.example.com');
+  const allowed = await request('/api/auth/login', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://front.example.com',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'authorization,content-type',
+    },
+  });
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://front.example.com');
+  assert.match(allowed.headers.get('access-control-allow-headers') ?? '', /Authorization/);
+
+  const blocked = await request('/api/auth/login', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://untrusted.example.com',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'authorization,content-type',
+    },
+  });
+  assert.equal(blocked.status, 204);
+  assert.equal(blocked.headers.get('access-control-allow-origin'), null);
 });
 
 test('contact creation binds input as SQL parameters', async () => {

@@ -76,6 +76,24 @@ export function createApp(
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
+  const corsOrigins = new Set(
+    (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
+  );
+  if (corsOrigins.has('*')) throw new Error('CORS_ORIGINS must contain explicit origins, not a wildcard.');
+
+  app.use((req, res, next) => {
+    const origin = req.get('origin');
+    if (origin && corsOrigins.has(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      res.setHeader('Access-Control-Expose-Headers', 'Location');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+    if (req.method === 'OPTIONS') return res.status(204).end();
+    return next();
+  });
 
   app.use('/api', async (req, res, next) => {
     if (req.path === '/webhook/whatsapp'
