@@ -1,6 +1,6 @@
 # InAblink API
 
-Especificação do backend Node.js 22+, Express e MySQL. O fluxo inicial do WhatsApp está implementado; as demais rotas são o contrato-alvo para próximas etapas. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
+Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp e a autenticação inicial estão implementados; as rotas de negócio restantes são o contrato-alvo para próximas etapas. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
 
 ## Executar localmente
 
@@ -14,13 +14,13 @@ npm run build
 npm run dev
 ```
 
-Configure `.env` com credenciais locais. `npm start` inicia sem watch. O servidor não executa migrações automaticamente. Não disponibilize externamente antes de configurar autenticação, autorização e HTTPS.
+Configure `.env` com credenciais locais, incluindo `JWT_SECRET` com pelo menos 32 bytes aleatórios. `npm start` inicia sem watch. O servidor não executa migrações automaticamente. Disponibilize somente atrás de HTTPS.
 
 O backend e seus testes são escritos em TypeScript. `npm run dev` executa os fontes com watch; `npm run build` compila os módulos ESM para `dist/`; `npm start` inicia essa compilação. A pasta `dist/` é gerada e não deve ser versionada.
 
-## Primeira fatia implementada
+## Histórico da primeira fatia WhatsApp
 
-O primeiro fluxo implementado é WhatsApp de texto, sem frontend:
+O bloco abaixo registra a primeira fatia WhatsApp, anterior à implementação de login:
 
 - `GET /api/webhook/whatsapp` valida `WHATSAPP_VERIFY_TOKEN` e devolve o challenge da Meta.
 - `POST /api/webhook/whatsapp` valida `X-Hub-Signature-256` com `WHATSAPP_APP_SECRET`, percorre eventos `messages` e `statuses`, cria/reutiliza contato e conversa pelo telefone, abre atendimento se necessário e grava mensagens/status no MySQL. IDs de mensagem e eventos repetidos são deduplicados.
@@ -29,6 +29,16 @@ O primeiro fluxo implementado é WhatsApp de texto, sem frontend:
 - Como ainda não há login, o token compartilhado não identifica um funcionário específico; mensagens de saída ficam com `origem = 'usuario'` e FK de usuário nula. Implementar autenticação individual para preencher a autoria real antes do uso por vários atendentes.
 
 O restante das rotas descritas neste contrato continua como especificação futura. O webhook responde `200` somente após commit; estados que chegarem antes do ID de saída ser salvo ficam temporariamente em `WHATSAPP_STATUS_PENDENTE` e são aplicados ao correlacionar o ID. Falhas reais da Meta e do MySQL ainda devem ser validadas em homologação; a suíte não envia mensagens externas.
+
+## Autenticação JWT atual
+
+`POST /api/auth/login` emite JWT Bearer assinado com HS256 e validade de 12 horas para usuário ativo. Todas as rotas `/api/*`, exceto login e webhook Meta, exigem `Authorization: Bearer <accessToken>`. Cada requisição valida assinatura/expiração e consulta `AUTH_SESSAO` junto ao estado e perfil atuais do usuário.
+
+`POST /api/auth/logout` revoga a sessão imediatamente; `PATCH /api/auth/password` exige senha atual, troca o hash scrypt e revoga todas as sessões da conta. Desativar um usuário bloqueia todos os seus tokens. Senhas devem ter de 12 a 128 caracteres, são armazenadas com salt aleatório e nunca aparecem em resposta/log.
+
+No navegador, guardar o JWT em `sessionStorage`, não em `localStorage`; enviar o bearer token em cada chamada e limpar o armazenamento após logout ou `401`. Fechar a aba remove o token daquela sessão do navegador, mas não garante aviso ao servidor: a sessão remota permanece até o logout explícito, troca de senha, desativação da conta ou expiração de 12 horas.
+
+Configure `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha-o fora do repositório. Para provisionar o primeiro administrador em um banco vazio, compile com `npm run build`, defina temporariamente `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL` e `BOOTSTRAP_ADMIN_PASSWORD` apenas no ambiente do processo e execute `npm run admin:create`. O comando recusa banco `USUARIO` não vazio e armazena somente hash; remova as variáveis após a execução.
 
 ## Regras do domínio
 
@@ -59,14 +69,16 @@ O restante das rotas descritas neste contrato continua como especificação futu
 | --- | --- | --- |
 | `GET /health` | Público | Liveness; `200 { "status": "ok" }`; não consulta MySQL. |
 | `GET /health/ready` | Público | `SELECT 1`; `200` se MySQL responde, `503` caso contrário. |
-| `POST /api/auth/login` | Público | Body `{ "email": "...", "senha": "..." }`; valida hash e retorna token e dados públicos; credenciais inválidas retornam `401`. |
-| `GET /api/auth/me` | Autenticado | Retorna usuário do token sem `hash_senha`. |
+| `POST /api/auth/login` | Público | Body `{ "email": "...", "senha": "..." }`; valida hash e retorna `{ "data": { "accessToken", "tokenType": "Bearer", "expiresIn": 43200, "user": { ... } } }`; credenciais inválidas retornam `401`. |
+| `GET /api/auth/me` | Autenticado | Retorna usuário da sessão sem `hash_senha` ou `jti`. |
+| `POST /api/auth/logout` | Autenticado | Revoga imediatamente a sessão JWT; sucesso `204`; token revogado retorna `401` nas próximas chamadas. |
+| `PATCH /api/auth/password` | Autenticado | Body `{ "senha_atual": "...", "nova_senha": "..." }`; exige senha atual, salva novo hash e revoga todas as sessões; sucesso `204`. |
 | `GET /api/usuarios` | Admin | Lista usuários sem hashes. |
 | `POST /api/usuarios` | Admin | Cria usuário com `nome`, `email`, `senha`, perfil; persiste somente hash. |
 | `GET /api/usuarios/:id` | Admin | Consulta usuário sem hash. |
 | `PATCH /api/usuarios/:id` | Admin | Altera nome, email, perfil ou `ativo`; desativar em vez de apagar. |
 
-O SQL precisa armazenar perfil/role (`admin` ou `atendente`). A implementação do token e sua expiração também devem ser definidas. Senhas nunca são retornadas nem armazenadas em texto puro.
+`USUARIO` armazena perfil (`admin` ou `atendente`) e hash scrypt com salt aleatório; a API não retorna hashes. JWT HS256 dura 12 horas e cada chamada autenticada também verifica a sessão no banco, permitindo logout, troca de senha e desativação imediata.
 
 ### Contatos e etiquetas
 
@@ -137,7 +149,7 @@ Para todos os itens `statuses[]`: localizar mensagem pelo ID externo, atualizar 
 
 ## Banco de dados
 
-`../BD/modelo_fisico_corrigido.sql` contém o esquema completo esperado para instalação em banco vazio, incluindo os ajustes abaixo. O backend não cria nem altera tabelas automaticamente. **Não reaplique o script em um banco existente**: prepare uma migração de dados e valide-a antes de atualizar o MySQL da Azure.
+`../BD/modelo_fisico_corrigido.sql` contém o esquema completo esperado para instalação em banco vazio, incluindo os ajustes abaixo. O backend não cria nem altera tabelas automaticamente. Em banco existente, aplique uma migração revisada que crie `AUTH_SESSAO` e verifique os demais requisitos; **não reaplique o script inteiro** sobre dados existentes.
 
 | Tabela/coluna | Requisito de esquema |
 | --- | --- |
@@ -150,9 +162,10 @@ Para todos os itens `statuses[]`: localizar mensagem pelo ID externo, atualizar 
 | `MENSAGEM.FK_USUARIO_id_usuario` | Opcional: nulo para contato/chatbot, funcionário autenticado para envio manual. Origem: `contato`, `usuario` ou `chatbot`. |
 | `MENSAGEM_STATUS_HISTORICO` | Manter FK obrigatória e índice por mensagem/data. Registrar estado inicial e cada transição juntamente com atualização do estado atual. |
 | `WHATSAPP_STATUS_PENDENTE` | Guardar temporariamente status Meta recebido antes de persistir o ID da mensagem enviada; chave única por ID externo, status e timestamp. |
+| `AUTH_SESSAO` | Guardar `jti` único, usuário, criação, expiração de 12h e revogação para invalidar tokens no logout/troca de senha. |
 | `ANOTACAO_INTERNA` | FK de conversa obrigatória e FK de autor `FK_USUARIO_id_usuario NOT NULL`; indexar conversa/data. |
 | `ATRIBUICAO` | Manter FKs obrigatórias para usuário e atendimento; várias atribuições ativas são válidas. Impedir duplicata ativa do mesmo usuário/atendimento em transação. |
-| `USUARIO` | Adicionar perfil/role (`admin`, `atendente`) para autorização definida por RN01. Desativar usuários em vez de excluí-los. |
+| `USUARIO` | Guardar `hash_senha`, perfil (`admin`, `atendente`) e estado ativo; desativar usuários em vez de excluí-los. |
 
 Criar contato, conversa e atendimento de forma concorrente-segura (índices únicos e transações); ambas as origens de mensagens devem usar o mesmo serviço de upsert por telefone. Registrar criação de mensagem e histórico/status em transações. Não permitir cascata que apague mensagens/anotações da API.
 
@@ -166,6 +179,7 @@ DB_PORT=3306
 DB_USER=inablink
 DB_PASSWORD=change-me
 DB_NAME=inablink
+JWT_SECRET=
 DB_SSL=false
 DB_SSL_CA=
 WHATSAPP_ACCESS_TOKEN=
@@ -175,7 +189,7 @@ WHATSAPP_APP_SECRET=
 WHATSAPP_API_VERSION=
 ```
 
-Defina `WHATSAPP_API_VERSION` para uma versão Graph ainda suportada pela aplicação Meta. `API_ACCESS_TOKEN`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos; use o armazenamento de segredos da Azure em produção. Nunca registrá-los em logs ou respostas.
+Gere `JWT_SECRET` com pelo menos 32 bytes aleatórios e configure-o em armazenamento de segredos na Azure. Defina `WHATSAPP_API_VERSION` para uma versão Graph ainda suportada pela aplicação Meta. `JWT_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos; nunca os versione nem registre em logs ou respostas.
 
 ## Testes
 
@@ -193,7 +207,31 @@ npm run build
 
 O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem o webhook simulado, assinatura, deduplicação, envio Graph API simulado, persistência simulada e rotas existentes; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. O type-check/build não substituem a suíte Vitest.
 
-### Smoke test manual sem frontend
+### Smoke test manual com JWT
+
+Depois de provisionar um usuário ativo, autentique-se e use o token retornado no envio:
+
+```powershell
+$login = Invoke-RestMethod -Method Post `
+  -Uri "https://<host-azure>/api/auth/login" `
+  -ContentType "application/json" `
+  -Body (@{ email = "<email>"; senha = "<senha>" } | ConvertTo-Json)
+$headers = @{ Authorization = "Bearer $($login.data.accessToken)" }
+$body = @{
+  telefone = "+15551234567"
+  tipo = "text"
+  conteudo = "Teste de integração InAblink"
+} | ConvertTo-Json
+Invoke-RestMethod -Method Post `
+  -Uri "https://<host-azure>/api/mensagens/enviar" `
+  -Headers $headers `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Use um número de teste permitido pela configuração Meta e que tenha consentido. Essa chamada não deve apontar para produção durante homologação.
+
+### Exemplo legado de smoke test (token compartilhado; não usar)
 
 Depois de configurar a callback Meta para o endereço HTTPS do serviço, usar um telefone de teste permitido pela configuração Meta:
 

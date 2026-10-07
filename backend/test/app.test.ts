@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import type { Server } from 'node:http';
+import { SignJWT } from 'jose';
 import { afterEach, test } from 'vitest';
 import type { Pool } from 'mysql2/promise';
 import { createApp } from '../src/app.js';
 
 const servers = new Set<Server>();
+const jwtSecret = 'test-jwt-secret-with-at-least-thirty-two-bytes';
 
 function portOf(server: Server): number {
   const address = server.address();
@@ -25,18 +27,40 @@ interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
 }
 
 async function fixture(execute: (sql: string, values?: unknown[]) => Promise<unknown>) {
+  const token = await new SignJWT({ jti: 'test-session-id' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setSubject('1')
+    .setIssuer('inablink-api')
+    .setAudience('inablink-frontend')
+    .setIssuedAt()
+    .setExpirationTime('12h')
+    .sign(new TextEncoder().encode(jwtSecret));
+  const db = {
+    execute: async (sql: string, values?: unknown[]) => {
+      if (sql.includes('FROM AUTH_SESSAO')) {
+        return [[{
+          id_usuario: 1,
+          nome: 'Admin',
+          email: 'admin@example.com',
+          perfil: 'admin',
+          ativo: true,
+        }], []];
+      }
+      return execute(sql, values);
+    },
+  };
   const server = createApp(
-    { execute } as unknown as Pool,
+    db as unknown as Pool,
     { error() {}, warn() {} },
     undefined,
-    { API_ACCESS_TOKEN: 'test-api-token' },
+    { JWT_SECRET: jwtSecret },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
   return (path: string, options: TestRequestOptions = {}) => fetch(`http://127.0.0.1:${portOf(server)}${path}`, {
     ...options,
     headers: {
-      Authorization: 'Bearer test-api-token',
+      Authorization: `Bearer ${token}`,
       ...options.headers,
     },
   });

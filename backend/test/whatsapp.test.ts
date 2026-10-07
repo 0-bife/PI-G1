@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
 import type { Server } from 'node:http';
+import { SignJWT } from 'jose';
 import { afterEach, expect, test, vi } from 'vitest';
 import type { Pool } from 'mysql2/promise';
 import { createApp } from '../src/app.js';
@@ -47,8 +48,8 @@ interface MemoryHistory {
 interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
   headers?: Record<string, string>;
 }
-const apiToken = 'test-api-token';
 const appSecret = 'test-app-secret';
+const jwtSecret = 'test-jwt-secret-with-at-least-thirty-two-bytes';
 const servers = new Set<Server>();
 
 function portOf(server: Server): number {
@@ -65,6 +66,19 @@ class MemoryDatabase {
   statusHistory: MemoryHistory[] = [];
   pendingStatuses: MemoryStatus[] = [];
   ids = { contact: 1, conversation: 1, attendance: 1, message: 1, status: 1 };
+
+  async execute(sql: string): Promise<[unknown, unknown[]]> {
+    if (sql.includes('FROM AUTH_SESSAO')) {
+      return [[{
+        id_usuario: 1,
+        nome: 'Test Agent',
+        email: 'agent@example.com',
+        perfil: 'atendente',
+        ativo: true,
+      }], []];
+    }
+    throw new Error(`Unexpected pool SQL in test fake: ${sql}`);
+  }
 
   async getConnection() {
     const db = this;
@@ -235,6 +249,14 @@ async function fixture(
   database = new MemoryDatabase(),
   sendTextMessage: (phone: string, text: string) => Promise<string> = vi.fn().mockResolvedValue('wamid.outgoing'),
 ) {
+  const token = await new SignJWT({ jti: 'test-session-id' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setSubject('1')
+    .setIssuer('inablink-api')
+    .setAudience('inablink-frontend')
+    .setIssuedAt()
+    .setExpirationTime('12h')
+    .sign(new TextEncoder().encode(jwtSecret));
   const client = new WhatsAppClient({
     WHATSAPP_ACCESS_TOKEN: 'test-meta-token',
     WHATSAPP_PHONE_NUMBER_ID: 'test-phone-id',
@@ -248,7 +270,7 @@ async function fixture(
     database as unknown as Pool,
     logger,
     client,
-    { API_ACCESS_TOKEN: apiToken },
+    { JWT_SECRET: jwtSecret },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
@@ -261,7 +283,7 @@ async function fixture(
     request: (path: string, options: TestRequestOptions = {}) => fetch(`http://127.0.0.1:${portOf(server)}${path}`, {
       ...options,
       headers: {
-        ...(path !== '/api/webhook/whatsapp' ? { Authorization: `Bearer ${apiToken}` } : {}),
+        ...(path !== '/api/webhook/whatsapp' ? { Authorization: `Bearer ${token}` } : {}),
         ...options.headers,
       },
     }),

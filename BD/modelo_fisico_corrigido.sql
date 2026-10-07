@@ -26,6 +26,22 @@ CREATE TABLE USUARIO (
     CONSTRAINT uq_usuario_email UNIQUE (email)
 );
 
+CREATE TABLE AUTH_SESSAO (
+    id_sessao BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    jti CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    criada_em DATETIME NOT NULL,
+    expira_em DATETIME NOT NULL,
+    revogada_em DATETIME NULL,
+    FK_USUARIO_id_usuario INT NOT NULL,
+    CONSTRAINT uq_auth_sessao_jti UNIQUE (jti),
+    INDEX idx_auth_sessao_usuario_expira
+        (FK_USUARIO_id_usuario, expira_em, revogada_em),
+    CONSTRAINT FK_AUTH_SESSAO_USUARIO
+        FOREIGN KEY (FK_USUARIO_id_usuario)
+        REFERENCES USUARIO (id_usuario)
+        ON DELETE RESTRICT
+);
+
 CREATE TABLE CONVERSA (
     id_conversa INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     criada_em DATE NOT NULL,

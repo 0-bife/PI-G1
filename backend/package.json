@@ -11,10 +11,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "node --env-file=.env --import tsx --watch src/server.ts",
     "start": "node --env-file=.env dist/server.js",
+    "admin:create": "node --env-file=.env dist/bootstrap-admin.js",
     "test": "vitest run"
   },
   "dependencies": {
     "express": "^5.1.0",
+    "jose": "^6.2.12",
     "mysql2": "^3.14.0"
   },
   "devDependencies": {
