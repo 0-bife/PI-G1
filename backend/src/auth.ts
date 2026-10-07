@@ -320,7 +320,7 @@ export class AuthService {
       `UPDATE USUARIO SET ${Object.keys(updates).map((field) => `${field} = ?`).join(', ')} WHERE id_usuario = ?`,
       [...Object.values(updates), id],
     );
-    return result.affectedRows > 0 || fields.length > 0;
+    return result.affectedRows > 0 || Boolean(await this.getUser(id));
   }
 }
 

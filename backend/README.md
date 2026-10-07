@@ -1,6 +1,6 @@
 # InAblink API
 
-Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp e a autenticação inicial estão implementados; as rotas de negócio restantes são o contrato-alvo para próximas etapas. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
+Implementação do backend Node.js 22+, TypeScript, Express e MySQL. O fluxo WhatsApp, autenticação, contatos e etiquetas estão implementados; conversas, atendimentos e mensagens são as próximas rotas de negócio. O SQL de instalação é `../BD/modelo_fisico_corrigido.sql`.
 
 ## Executar localmente
 

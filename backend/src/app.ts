@@ -7,6 +7,7 @@ import {
   AuthorizationError,
   RequestValidationError,
 } from './auth.js';
+import { ContactService } from './contact-service.js';
 import { MessageService, WhatsAppDeliveryError } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
 
@@ -19,8 +20,6 @@ interface ResourceDefinition {
 }
 
 const resources: Record<string, ResourceDefinition> = {
-  contatos: { table: 'CONTATO', id: 'id_contato', fields: ['nome', 'telefone', 'email'], required: ['nome', 'telefone'] },
-  etiquetas: { table: 'ETIQUETA', id: 'id_etiqueta', fields: ['nome', 'cor'], required: ['nome'] },
   conversas: { table: 'CONVERSA', id: 'id_conversa', fields: [], required: [], deletable: false },
 };
 
@@ -87,6 +86,7 @@ export function createApp(
   const app = express();
   app.disable('x-powered-by');
   const messages = new MessageService(db, whatsappClient, logger);
+  const contacts = new ContactService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
 
   app.use('/api', async (req, res, next) => {
@@ -192,6 +192,150 @@ export function createApp(
       ativo: body.ativo,
     });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
+    return res.status(204).end();
+  });
+
+  app.get('/api/contatos', async (req: Request, res: Response) => {
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    return res.json(await contacts.listContacts(page, limit));
+  });
+  app.post('/api/contatos', async (req: Request, res: Response) => {
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).some((key) => !['telefone', 'nome', 'email'].includes(key))
+      || !e164(body.telefone)) {
+      throw new RequestValidationError('telefone E.164 é obrigatório; campos permitidos: telefone, nome, email.');
+    }
+    const name = body.nome ?? null;
+    const email = body.email ?? null;
+    if (name !== null && (typeof name !== 'string' || !name.trim() || [...name.trim()].length > 255)) {
+      throw new RequestValidationError('nome deve ter até 255 caracteres.');
+    }
+    if (email !== null && (typeof email !== 'string'
+      || email.trim().length > 255
+      || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) {
+      throw new RequestValidationError('email inválido.');
+    }
+    const data = await contacts.createContact({
+      phone: body.telefone,
+      name: typeof name === 'string' ? name.trim() : null,
+      email: typeof email === 'string' ? email.trim() : null,
+    });
+    return res.location(`/api/contatos/${encodeURIComponent(data.telefone)}`).status(201).json({ data });
+  });
+  app.get('/api/contatos/:telefone/etiquetas', async (req: Request, res: Response) => {
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const data = await contacts.listContactLabels(req.params.telefone);
+    if (data === null) return res.status(404).json({ error: 'Contact not found.' });
+    return res.json({ data });
+  });
+  app.put('/api/contatos/:telefone/etiquetas/:etiquetaId', async (req: Request, res: Response) => {
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    const result = await contacts.addContactLabel(req.params.telefone, labelId);
+    if (result === 'missing-contact') return res.status(404).json({ error: 'Contact not found.' });
+    if (result === 'missing-label') return res.status(404).json({ error: 'Label not found.' });
+    return res.status(204).end();
+  });
+  app.delete('/api/contatos/:telefone/etiquetas/:etiquetaId', async (req: Request, res: Response) => {
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    const result = await contacts.removeContactLabel(req.params.telefone, labelId);
+    if (result === 'missing-contact') return res.status(404).json({ error: 'Contact not found.' });
+    if (result === 'missing-association') return res.status(404).json({ error: 'Contact label not found.' });
+    return res.status(204).end();
+  });
+  app.get('/api/contatos/:telefone', async (req: Request, res: Response) => {
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const data = await contacts.getContact(req.params.telefone);
+    if (!data) return res.status(404).json({ error: 'Contact not found.' });
+    return res.json({ data });
+  });
+  app.patch('/api/contatos/:telefone', async (req: Request, res: Response) => {
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const body = isRecord(req.body) ? req.body : {};
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !['nome', 'email'].includes(key))) {
+      throw new RequestValidationError('Informe nome e/ou email; telefone não pode ser alterado.');
+    }
+    const name = body.nome;
+    const email = body.email;
+    if (name !== undefined && name !== null
+      && (typeof name !== 'string' || !name.trim() || [...name.trim()].length > 255)) {
+      throw new RequestValidationError('nome deve ter até 255 caracteres.');
+    }
+    if (email !== undefined && email !== null
+      && (typeof email !== 'string'
+        || email.trim().length > 255
+        || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) {
+      throw new RequestValidationError('email inválido.');
+    }
+    const updated = await contacts.updateContact(req.params.telefone, {
+      ...(name !== undefined ? { nome: typeof name === 'string' ? name.trim() : null } : {}),
+      ...(email !== undefined ? { email: typeof email === 'string' ? email.trim() : null } : {}),
+    });
+    if (!updated) return res.status(404).json({ error: 'Contact not found.' });
+    return res.status(204).end();
+  });
+  app.delete('/api/contatos/:telefone', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    if (!e164(req.params.telefone)) throw new RequestValidationError('telefone E.164 inválido.');
+    const result = await contacts.deleteContact(req.params.telefone);
+    if (result === 'not-found') return res.status(404).json({ error: 'Contact not found.' });
+    if (result === 'has-history') return res.status(409).json({ error: 'Contact has conversation history.' });
+    return res.status(204).end();
+  });
+
+  app.get('/api/etiquetas', async (req: Request, res: Response) => {
+    const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
+    const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
+    return res.json(await contacts.listLabels(page, limit));
+  });
+  app.post('/api/etiquetas', async (req: Request, res: Response) => {
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).some((key) => !['nome', 'cor'].includes(key))
+      || typeof body.nome !== 'string' || !body.nome.trim() || [...body.nome.trim()].length > 255) {
+      throw new RequestValidationError('nome é obrigatório e deve ter até 255 caracteres.');
+    }
+    if (body.cor !== undefined && body.cor !== null
+      && (typeof body.cor !== 'string' || [...body.cor.trim()].length > 255)) {
+      throw new RequestValidationError('cor deve ter até 255 caracteres ou ser null.');
+    }
+    const data = await contacts.createLabel({
+      nome: body.nome.trim(),
+      cor: typeof body.cor === 'string' ? body.cor.trim() || null : null,
+    });
+    return res.location(`/api/etiquetas/${data.id_etiqueta}`).status(201).json({ data });
+  });
+  app.get('/api/etiquetas/:id', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const data = await contacts.getLabel(id);
+    if (!data) return res.status(404).json({ error: 'Label not found.' });
+    return res.json({ data });
+  });
+  app.patch('/api/etiquetas/:id', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !['nome', 'cor'].includes(key))) {
+      throw new RequestValidationError('Informe nome e/ou cor.');
+    }
+    if (body.nome !== undefined
+      && (typeof body.nome !== 'string' || !body.nome.trim() || [...body.nome.trim()].length > 255)) {
+      throw new RequestValidationError('nome é obrigatório e deve ter até 255 caracteres.');
+    }
+    if (body.cor !== undefined && body.cor !== null
+      && (typeof body.cor !== 'string' || [...body.cor.trim()].length > 255)) {
+      throw new RequestValidationError('cor deve ter até 255 caracteres ou ser null.');
+    }
+    const updated = await contacts.updateLabel(id, {
+      ...(typeof body.nome === 'string' ? { nome: body.nome.trim() } : {}),
+      ...(body.cor !== undefined ? { cor: typeof body.cor === 'string' ? body.cor.trim() || null : null } : {}),
+    });
+    if (!updated) return res.status(404).json({ error: 'Label not found.' });
+    return res.status(204).end();
+  });
+  app.delete('/api/etiquetas/:id', async (req: Request, res: Response) => {
+    const id = positiveInteger(req.params.id, 'id');
+    if (!(await contacts.deleteLabel(id))) return res.status(404).json({ error: 'Label not found.' });
     return res.status(204).end();
   });
 
