@@ -1,23 +1,70 @@
 import { createHmac } from 'node:crypto';
 import { once } from 'node:events';
+import type { Server } from 'node:http';
 import { afterEach, expect, test, vi } from 'vitest';
+import type { Pool } from 'mysql2/promise';
 import { createApp } from '../src/app.js';
 import { WhatsAppClient } from '../src/whatsapp.js';
 
+type TestValue = string | number | null;
+interface MemoryContact {
+  id_contato: number;
+  telefone: TestValue;
+  nome: TestValue;
+}
+interface MemoryConversation {
+  id_conversa: number;
+  contactId: TestValue;
+}
+interface MemoryAttendance {
+  id_atendimento: number;
+  conversationId: TestValue;
+  closed: boolean;
+}
+interface MemoryMessage {
+  id_mensagem: number;
+  id_externo?: TestValue;
+  data_hora?: TestValue;
+  conteudo?: TestValue;
+  referencia_midia?: TestValue;
+  tipo?: TestValue;
+  status: string;
+  conversationId: TestValue;
+}
+interface MemoryStatus {
+  externalId: TestValue;
+  status: TestValue;
+  occurredAt: string;
+  detail: TestValue;
+}
+interface MemoryHistory {
+  id_historico: number;
+  status: TestValue;
+  occurredAt: TestValue;
+  detail: TestValue;
+  messageId: TestValue;
+}
+interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
+  headers?: Record<string, string>;
+}
 const apiToken = 'test-api-token';
 const appSecret = 'test-app-secret';
-const servers = new Set();
+const servers = new Set<Server>();
+
+function portOf(server: Server): number {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server has no TCP address.');
+  return address.port;
+}
 
 class MemoryDatabase {
-  constructor() {
-    this.contacts = [];
-    this.conversations = [];
-    this.attendances = [];
-    this.messages = [];
-    this.statusHistory = [];
-    this.pendingStatuses = [];
-    this.ids = { contact: 1, conversation: 1, attendance: 1, message: 1, status: 1 };
-  }
+  contacts: MemoryContact[] = [];
+  conversations: MemoryConversation[] = [];
+  attendances: MemoryAttendance[] = [];
+  messages: MemoryMessage[] = [];
+  statusHistory: MemoryHistory[] = [];
+  pendingStatuses: MemoryStatus[] = [];
+  ids = { contact: 1, conversation: 1, attendance: 1, message: 1, status: 1 };
 
   async getConnection() {
     const db = this;
@@ -26,7 +73,7 @@ class MemoryDatabase {
       async commit() {},
       async rollback() {},
       release() {},
-      async execute(rawSql, values = []) {
+      async execute(rawSql: string, values: TestValue[] = []) {
         const sql = rawSql.replace(/\s+/g, ' ').trim();
 
         if (sql.startsWith('INSERT INTO CONTATO')) {
@@ -105,7 +152,12 @@ class MemoryDatabase {
               && row.status === status
               && row.occurredAt === occurredAt,
           );
-          if (!exists) db.pendingStatuses.push({ externalId, status, occurredAt, detail });
+          if (!exists) db.pendingStatuses.push({
+            externalId,
+            status,
+            occurredAt: String(occurredAt),
+            detail,
+          });
           return [{ affectedRows: exists ? 0 : 1 }, []];
         }
         if (sql.startsWith('DELETE FROM WHATSAPP_STATUS_PENDENTE')) {
@@ -130,7 +182,7 @@ class MemoryDatabase {
         }
         if (sql.startsWith('INSERT INTO MENSAGEM')) {
           const id_mensagem = db.ids.message++;
-          let row;
+          let row: MemoryMessage;
           if (sql.includes("'usuario', 'pending'")) {
             row = {
               id_mensagem,
@@ -141,8 +193,7 @@ class MemoryDatabase {
           } else {
             const [occurredAt, content, mediaReference, type, externalId, conversationId] = values;
             if (db.messages.some((message) => message.id_externo === externalId)) {
-              const error = new Error('Duplicate external ID');
-              error.code = 'ER_DUP_ENTRY';
+              const error = Object.assign(new Error('Duplicate external ID'), { code: 'ER_DUP_ENTRY' });
               throw error;
             }
             row = {
@@ -162,6 +213,7 @@ class MemoryDatabase {
         if (sql.startsWith('UPDATE MENSAGEM SET id_externo')) {
           const [externalId, messageId] = values;
           const row = db.messages.find((message) => message.id_mensagem === messageId);
+          if (!row) throw new Error('Outgoing test message not found.');
           row.id_externo = externalId;
           row.status = 'sent';
           return [{ affectedRows: 1 }, []];
@@ -169,6 +221,7 @@ class MemoryDatabase {
         if (sql.startsWith('UPDATE MENSAGEM SET status')) {
           const [status, messageId] = values;
           const row = db.messages.find((message) => message.id_mensagem === messageId);
+          if (!row || typeof status !== 'string') throw new Error('Test message status update is invalid.');
           row.status = status;
           return [{ affectedRows: 1 }, []];
         }
@@ -178,7 +231,10 @@ class MemoryDatabase {
   }
 }
 
-async function fixture(database = new MemoryDatabase(), sendTextMessage = vi.fn().mockResolvedValue('wamid.outgoing')) {
+async function fixture(
+  database = new MemoryDatabase(),
+  sendTextMessage: (phone: string, text: string) => Promise<string> = vi.fn().mockResolvedValue('wamid.outgoing'),
+) {
   const client = new WhatsAppClient({
     WHATSAPP_ACCESS_TOKEN: 'test-meta-token',
     WHATSAPP_PHONE_NUMBER_ID: 'test-phone-id',
@@ -189,7 +245,7 @@ async function fixture(database = new MemoryDatabase(), sendTextMessage = vi.fn(
   client.sendTextMessage = sendTextMessage;
   const logger = { error: vi.fn(), warn: vi.fn() };
   const server = createApp(
-    database,
+    database as unknown as Pool,
     logger,
     client,
     { API_ACCESS_TOKEN: apiToken },
@@ -202,7 +258,7 @@ async function fixture(database = new MemoryDatabase(), sendTextMessage = vi.fn(
     logger,
     client,
     sendTextMessage,
-    request: (path, options = {}) => fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+    request: (path: string, options: TestRequestOptions = {}) => fetch(`http://127.0.0.1:${portOf(server)}${path}`, {
       ...options,
       headers: {
         ...(path !== '/api/webhook/whatsapp' ? { Authorization: `Bearer ${apiToken}` } : {}),
@@ -212,8 +268,9 @@ async function fixture(database = new MemoryDatabase(), sendTextMessage = vi.fn(
   };
 }
 
-function signedRequest(payload) {
+function signedRequest(payload: unknown): TestRequestOptions {
   const body = JSON.stringify(payload);
+  if (body === undefined) throw new Error('Webhook test payload must be JSON serializable.');
   const signature = `sha256=${createHmac('sha256', appSecret).update(body).digest('hex')}`;
   return {
     method: 'POST',
@@ -225,7 +282,22 @@ function signedRequest(payload) {
   };
 }
 
-function incomingPayload(messages, contacts = []) {
+interface TestWebhookPayload {
+  object: string;
+  entry: Array<{
+    changes: Array<{
+      field: string;
+      value: {
+        metadata: { phone_number_id: string };
+        contacts: object[];
+        messages: object[];
+        statuses?: object[];
+      };
+    }>;
+  }>;
+}
+
+function incomingPayload(messages: object[], contacts: object[] = []): TestWebhookPayload {
   return {
     object: 'whatsapp_business_account',
     entry: [{

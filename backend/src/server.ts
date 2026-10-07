@@ -9,7 +9,7 @@ const server = createApp(db).listen(port, host, () => {
 });
 
 let stopping = false;
-function shutdown() {
+function shutdown(): void {
   if (stopping) return;
   stopping = true;
   const timeout = setTimeout(() => process.exit(1), 10000).unref();
@@ -24,7 +24,7 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-server.on('error', async (error) => {
+server.on('error', async (error: NodeJS.ErrnoException) => {
   console.error('Server failed to start:', error.code);
   await db.end();
   process.exitCode = 1;

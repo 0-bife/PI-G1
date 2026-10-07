@@ -9,10 +9,14 @@ Crie o schema MySQL, aplique o SQL físico atualizado e execute na pasta `backen
 ```powershell
 npm ci
 Copy-Item .env.example .env
+npm run typecheck
+npm run build
 npm run dev
 ```
 
 Configure `.env` com credenciais locais. `npm start` inicia sem watch. O servidor não executa migrações automaticamente. Não disponibilize externamente antes de configurar autenticação, autorização e HTTPS.
+
+O backend e seus testes são escritos em TypeScript. `npm run dev` executa os fontes com watch; `npm run build` compila os módulos ESM para `dist/`; `npm start` inicia essa compilação. A pasta `dist/` é gerada e não deve ser versionada.
 
 ## Primeira fatia implementada
 
@@ -181,11 +185,13 @@ Com esse script, executar na pasta `backend`:
 
 ```powershell
 npm test
-npm test -- test/app.test.js
-npm test -- test/app.test.js -t "webhook"
+npm test -- test/app.test.ts
+npm test -- test/app.test.ts -t "webhook"
+npm run typecheck
+npm run build
 ```
 
-O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem o webhook simulado, assinatura, deduplicação, envio Graph API simulado, persistência simulada e rotas existentes; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. Não existem scripts de build ou lint configurados.
+O teste focado pode selecionar um arquivo ou usar `-t` com o nome/subtexto do teste. Os testes atuais cobrem o webhook simulado, assinatura, deduplicação, envio Graph API simulado, persistência simulada e rotas existentes; não conectam ao MySQL da Azure nem enviam mensagens reais. Ainda é necessário validar a instalação do schema na Azure e fazer smoke test manual com um destinatário de teste autorizado. O type-check/build não substituem a suíte Vitest.
 
 ### Smoke test manual sem frontend
 

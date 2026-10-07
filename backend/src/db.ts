@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function createDatabase(env = process.env) {
+export function createDatabase(env: NodeJS.ProcessEnv = process.env) {
   for (const key of ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME']) {
     if (!env[key]) throw new Error(`Missing environment variable: ${key}`);
   }

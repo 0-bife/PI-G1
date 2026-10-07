@@ -1,21 +1,33 @@
-const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
-const STATUS_RANK = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+import type { Pool, PoolConnection } from 'mysql2/promise';
+import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { WhatsAppClient } from './whatsapp.js';
 
-function mysqlDateTime(date) {
+const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
+const STATUS_RANK: Record<string, number> = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDuplicateEntry(error: unknown): boolean {
+  return isRecord(error) && error.code === DUPLICATE_ENTRY;
+}
+
+function mysqlDateTime(date: Date): string {
   if (Number.isNaN(date.getTime())) {
     throw Object.assign(new Error('Invalid event timestamp.'), { status: 400 });
   }
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
-function fromMetaTimestamp(value) {
+function fromMetaTimestamp(value: unknown): Date {
   if (!/^\d+$/.test(String(value))) {
     throw Object.assign(new Error('Invalid WhatsApp event timestamp.'), { status: 400 });
   }
   return new Date(Number(value) * 1000);
 }
 
-function normalizeMetaPhone(value) {
+function normalizeMetaPhone(value: unknown): string {
   const digits = String(value).replace(/\D/g, '');
   if (!/^[1-9]\d{7,14}$/.test(digits)) {
     throw Object.assign(new Error('Invalid WhatsApp sender phone.'), { status: 400 });
@@ -23,7 +35,7 @@ function normalizeMetaPhone(value) {
   return `+${digits}`;
 }
 
-async function inTransaction(db, work) {
+async function inTransaction<T>(db: Pool, work: (connection: PoolConnection) => Promise<T>): Promise<T> {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -34,7 +46,7 @@ async function inTransaction(db, work) {
     try {
       await connection.rollback();
     } catch {
-      error.rollbackFailed = true;
+      if (error instanceof Error) Object.assign(error, { rollbackFailed: true });
     }
     throw error;
   } finally {
@@ -42,7 +54,7 @@ async function inTransaction(db, work) {
   }
 }
 
-async function ensureContactConversation(connection, phone, profileName = null) {
+async function ensureContactConversation(connection: PoolConnection, phone: string, profileName: string | null = null) {
   await connection.execute(
     `INSERT INTO CONTATO (telefone, nome, cadastrado_em)
      VALUES (?, ?, CURRENT_DATE())
@@ -51,31 +63,32 @@ async function ensureContactConversation(connection, phone, profileName = null) 
        nome = COALESCE(VALUES(nome), nome)`,
     [phone, profileName],
   );
-  const [contacts] = await connection.execute(
+  const [contacts] = await connection.execute<RowDataPacket[]>(
     'SELECT id_contato FROM CONTATO WHERE telefone = ? FOR UPDATE',
     [phone],
   );
   if (!contacts.length) throw new Error('Contact upsert did not return a row.');
+  const contactId = Number(contacts[0].id_contato);
 
   await connection.execute(
     `INSERT INTO CONVERSA (criada_em, FK_CONTATO_id_contato)
      VALUES (CURRENT_DATE(), ?)
      ON DUPLICATE KEY UPDATE id_conversa = LAST_INSERT_ID(id_conversa)`,
-    [contacts[0].id_contato],
+    [contactId],
   );
-  const [conversations] = await connection.execute(
+  const [conversations] = await connection.execute<RowDataPacket[]>(
     'SELECT id_conversa FROM CONVERSA WHERE FK_CONTATO_id_contato = ? FOR UPDATE',
-    [contacts[0].id_contato],
+    [contactId],
   );
   if (!conversations.length) throw new Error('Conversation upsert did not return a row.');
   return {
-    contactId: contacts[0].id_contato,
+    contactId,
     conversationId: conversations[0].id_conversa,
   };
 }
 
-async function ensureOpenAttendance(connection, conversationId) {
-  const [rows] = await connection.execute(
+async function ensureOpenAttendance(connection: PoolConnection, conversationId: number): Promise<number> {
+  const [rows] = await connection.execute<RowDataPacket[]>(
     `SELECT id_atendimento FROM ATENDIMENTO
      WHERE FK_CONVERSA_id_conversa = ? AND encerrado_em IS NULL
      ORDER BY id_atendimento DESC LIMIT 1 FOR UPDATE`,
@@ -83,7 +96,7 @@ async function ensureOpenAttendance(connection, conversationId) {
   );
   if (rows.length) return rows[0].id_atendimento;
 
-  const [result] = await connection.execute(
+  const [result] = await connection.execute<ResultSetHeader>(
     `INSERT INTO ATENDIMENTO (status, iniciado_em, encerrado_em, FK_CONVERSA_id_conversa)
      VALUES ('open', UTC_TIMESTAMP(), NULL, ?)`,
     [conversationId],
@@ -91,7 +104,13 @@ async function ensureOpenAttendance(connection, conversationId) {
   return result.insertId;
 }
 
-async function insertStatusHistory(connection, messageId, status, occurredAt, detail = null) {
+async function insertStatusHistory(
+  connection: PoolConnection,
+  messageId: number,
+  status: string,
+  occurredAt: string,
+  detail: string | null = null,
+): Promise<void> {
   await connection.execute(
     `INSERT INTO MENSAGEM_STATUS_HISTORICO
        (status, ocorrido_em, detalhe_erro, FK_MENSAGEM_id_mensagem)
@@ -101,38 +120,54 @@ async function insertStatusHistory(connection, messageId, status, occurredAt, de
   );
 }
 
-function extractMessageContent(message) {
+function extractMessageContent(message: Record<string, unknown>): { content: string | null; mediaReference: string | null } {
   if (message.type === 'text') {
-    const content = message.text?.body;
+    const content = isRecord(message.text) ? message.text.body : undefined;
     if (typeof content !== 'string' || !content.length || [...content].length > 2048) {
       throw Object.assign(new Error('Invalid WhatsApp text message body.'), { status: 400 });
     }
     return { content, mediaReference: null };
   }
 
-  const contentObject = message[message.type];
-  if (!contentObject || typeof contentObject !== 'object') {
-    throw Object.assign(new Error('Invalid WhatsApp message content.'), { status: 400 });
+  const messageType = message.type;
+  if (typeof messageType !== 'string') {
+    throw Object.assign(new Error('Invalid WhatsApp message type.'), { status: 400 });
   }
-  if (Array.isArray(contentObject)) {
+  const contentObject = message[messageType];
+  if (!isRecord(contentObject)) {
     throw Object.assign(new Error('Invalid WhatsApp message content.'), { status: 400 });
   }
   const caption = contentObject.caption ?? null;
   if (caption !== null && (typeof caption !== 'string' || [...caption].length > 2048)) {
     throw Object.assign(new Error('Invalid WhatsApp media caption.'), { status: 400 });
   }
-  const mediaReference = contentObject.id ?? null;
-  if (['image', 'audio', 'document', 'sticker', 'video'].includes(message.type) && !mediaReference) {
+  const mediaId = contentObject.id;
+  if (mediaId !== undefined && typeof mediaId !== 'string') {
+    throw Object.assign(new Error('Invalid WhatsApp media ID.'), { status: 400 });
+  }
+  const mediaReference = mediaId ?? null;
+  if (['image', 'audio', 'document', 'sticker', 'video'].includes(messageType) && !mediaReference) {
     throw Object.assign(new Error('WhatsApp media message has no media ID.'), { status: 400 });
   }
-  const serialized = caption ?? (mediaReference ? null : JSON.stringify(contentObject));
+  const serialized = caption ?? (mediaReference ? null : JSON.stringify(contentObject) ?? null);
   if (serialized !== null && [...serialized].length > 2048) {
     throw Object.assign(new Error('WhatsApp message content exceeds 2048 characters.'), { status: 400 });
   }
   return { content: serialized, mediaReference };
 }
 
-async function applyStatusEvent(connection, messageId, currentStatus, event) {
+interface StatusEvent {
+  status: string;
+  occurredAt: string;
+  detail: string | null;
+}
+
+async function applyStatusEvent(
+  connection: PoolConnection,
+  messageId: number,
+  currentStatus: string,
+  event: StatusEvent,
+): Promise<string> {
   if (statusCanAdvance(currentStatus, event.status)) {
     await connection.execute(
       'UPDATE MENSAGEM SET status = ? WHERE id_mensagem = ?',
@@ -149,7 +184,7 @@ async function applyStatusEvent(connection, messageId, currentStatus, event) {
   return statusCanAdvance(currentStatus, event.status) ? event.status : currentStatus;
 }
 
-function statusCanAdvance(current, incoming) {
+function statusCanAdvance(current: string, incoming: string): boolean {
   const currentRank = STATUS_RANK[current] ?? -1;
   const incomingRank = STATUS_RANK[incoming] ?? -1;
   if (incoming === 'failed') return current !== 'read' && current !== 'delivered';
@@ -164,17 +199,18 @@ export class WhatsAppDeliveryError extends Error {
 }
 
 export class MessageService {
-  constructor(db, whatsappClient, logger = console) {
-    this.db = db;
-    this.whatsappClient = whatsappClient;
-    this.logger = logger;
+  constructor(
+    private readonly db: Pool,
+    private readonly whatsappClient: WhatsAppClient,
+    private readonly logger: Pick<Console, 'error' | 'warn'> = console,
+  ) {
   }
 
-  async sendText({ phone, text }) {
+  async sendText({ phone, text }: { phone: string; text: string }) {
     const pending = await inTransaction(this.db, async (connection) => {
       const { conversationId } = await ensureContactConversation(connection, phone);
       const attendanceId = await ensureOpenAttendance(connection, conversationId);
-      const [result] = await connection.execute(
+      const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO MENSAGEM
            (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa)
          VALUES (UTC_TIMESTAMP(), ?, 'usuario', 'pending', 'text', ?)`,
@@ -193,11 +229,12 @@ export class MessageService {
     try {
       providerMessageId = await this.whatsappClient.sendTextMessage(phone, text);
     } catch (error) {
+      const details = isRecord(error) ? error : {};
       this.logger.error('WhatsApp provider rejected outgoing message.', {
-        httpStatus: Number.isInteger(error.statusCode) ? error.statusCode : null,
-        providerCode: Number.isInteger(error.providerCode) ? error.providerCode : null,
-        providerSubcode: Number.isInteger(error.providerSubcode) ? error.providerSubcode : null,
-        networkCode: typeof error.code === 'string' ? error.code : null,
+        httpStatus: Number.isInteger(details.statusCode) ? details.statusCode : null,
+        providerCode: Number.isInteger(details.providerCode) ? details.providerCode : null,
+        providerSubcode: Number.isInteger(details.providerSubcode) ? details.providerSubcode : null,
+        networkCode: typeof details.code === 'string' ? details.code : null,
       });
       await inTransaction(this.db, async (connection) => {
         await connection.execute(
@@ -227,16 +264,16 @@ export class MessageService {
         'sent',
         mysqlDateTime(new Date()),
       );
-      const [pendingStatuses] = await connection.execute(
+      const [pendingStatuses] = await connection.execute<RowDataPacket[]>(
         `SELECT status, ocorrido_em, detalhe_erro FROM WHATSAPP_STATUS_PENDENTE
          WHERE id_externo = ? ORDER BY ocorrido_em, id_pendente FOR UPDATE`,
         [providerMessageId],
       );
       for (const event of pendingStatuses) {
         currentStatus = await applyStatusEvent(connection, pending.messageId, currentStatus, {
-          status: event.status,
-          occurredAt: event.ocorrido_em,
-          detail: event.detalhe_erro,
+          status: String(event.status),
+          occurredAt: String(event.ocorrido_em),
+          detail: typeof event.detalhe_erro === 'string' ? event.detalhe_erro : null,
         });
       }
       if (pendingStatuses.length) {
@@ -260,26 +297,27 @@ export class MessageService {
     };
   }
 
-  async processWebhook(payload) {
-    if (payload?.object !== 'whatsapp_business_account' || !Array.isArray(payload.entry)) {
+  async processWebhook(payload: unknown) {
+    if (!isRecord(payload) || payload.object !== 'whatsapp_business_account' || !Array.isArray(payload.entry)) {
       throw Object.assign(new Error('Invalid WhatsApp webhook payload.'), { status: 400 });
     }
+    const entries: unknown[] = payload.entry;
 
     return inTransaction(this.db, async (connection) => {
       let messagesProcessed = 0;
       let statusesProcessed = 0;
 
-      for (const entry of payload.entry) {
-        if (!entry || !Array.isArray(entry.changes)) {
+      for (const entry of entries) {
+        if (!isRecord(entry) || !Array.isArray(entry.changes)) {
           throw Object.assign(new Error('Invalid WhatsApp webhook entry.'), { status: 400 });
         }
-        for (const change of entry?.changes ?? []) {
-          if (change?.field !== 'messages') continue;
+        for (const change of entry.changes) {
+          if (!isRecord(change) || change.field !== 'messages') continue;
           const value = change.value;
-          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          if (!isRecord(value)) {
             throw Object.assign(new Error('Invalid WhatsApp webhook change.'), { status: 400 });
           }
-          const phoneNumberId = value.metadata?.phone_number_id;
+          const phoneNumberId = isRecord(value.metadata) ? value.metadata.phone_number_id : undefined;
           if (typeof phoneNumberId !== 'string'
             || (this.whatsappClient.phoneNumberId && phoneNumberId !== this.whatsappClient.phoneNumberId)) {
             throw Object.assign(new Error('Invalid WhatsApp phone number metadata.'), { status: 400 });
@@ -289,19 +327,30 @@ export class MessageService {
               throw Object.assign(new Error(`Invalid WhatsApp ${field} field.`), { status: 400 });
             }
           }
+          const contacts = Array.isArray(value.contacts) ? value.contacts : [];
+          const messages = Array.isArray(value.messages) ? value.messages : [];
+          const statusEvents = Array.isArray(value.statuses) ? value.statuses : [];
 
-          const profiles = new Map(
-            (value.contacts ?? []).map((contact) => [
+          const profiles = new Map<string, string | null>();
+          for (const contact of contacts) {
+            if (!isRecord(contact) || typeof contact.wa_id !== 'string') continue;
+            const profileName = isRecord(contact.profile) ? contact.profile.name : undefined;
+            profiles.set(
               contact.wa_id,
-              typeof contact.profile?.name === 'string' ? contact.profile.name.trim() || null : null,
-            ]),
-          );
+              typeof profileName === 'string' ? profileName.trim() || null : null,
+            );
+          }
 
-          for (const message of value.messages ?? []) {
-            if (!message?.id || !message.from || !message.timestamp || !message.type) {
+          for (const message of messages) {
+            if (!isRecord(message)
+              || typeof message.id !== 'string' || !message.id
+              || typeof message.from !== 'string' || !message.from
+              || (typeof message.timestamp !== 'string' && typeof message.timestamp !== 'number')
+              || !message.timestamp
+              || typeof message.type !== 'string' || !message.type) {
               throw Object.assign(new Error('Invalid WhatsApp message event.'), { status: 400 });
             }
-            const [alreadyStored] = await connection.execute(
+            const [alreadyStored] = await connection.execute<RowDataPacket[]>(
               'SELECT id_mensagem FROM MENSAGEM WHERE id_externo = ? FOR UPDATE',
               [message.id],
             );
@@ -314,7 +363,7 @@ export class MessageService {
               profiles.get(message.from) ?? null,
             );
 
-            const [existing] = await connection.execute(
+            const [existing] = await connection.execute<RowDataPacket[]>(
               'SELECT id_mensagem FROM MENSAGEM WHERE id_externo = ? FOR UPDATE',
               [message.id],
             );
@@ -324,7 +373,7 @@ export class MessageService {
             const { content, mediaReference } = extractMessageContent(message);
             const occurredAt = mysqlDateTime(fromMetaTimestamp(message.timestamp));
             try {
-              const [result] = await connection.execute(
+              const [result] = await connection.execute<ResultSetHeader>(
                 `INSERT INTO MENSAGEM
                    (data_hora, conteudo, origem, status, referencia_midia, tipo,
                     id_externo, FK_CONVERSA_id_conversa)
@@ -341,12 +390,16 @@ export class MessageService {
               await insertStatusHistory(connection, result.insertId, 'received', occurredAt);
               messagesProcessed++;
             } catch (error) {
-              if (error.code !== DUPLICATE_ENTRY) throw error;
+              if (!isDuplicateEntry(error)) throw error;
             }
           }
 
-          for (const statusEvent of value.statuses ?? []) {
-            if (!statusEvent?.id || !statusEvent.status || !statusEvent.timestamp) {
+          for (const statusEvent of statusEvents) {
+            if (!isRecord(statusEvent)
+              || typeof statusEvent.id !== 'string' || !statusEvent.id
+              || typeof statusEvent.status !== 'string' || !statusEvent.status
+              || (typeof statusEvent.timestamp !== 'string' && typeof statusEvent.timestamp !== 'number')
+              || !statusEvent.timestamp) {
               throw Object.assign(new Error('Invalid WhatsApp status event.'), { status: 400 });
             }
             if (!['sent', 'delivered', 'read', 'failed'].includes(statusEvent.status)) {
@@ -354,11 +407,14 @@ export class MessageService {
               continue;
             }
             const eventTime = mysqlDateTime(fromMetaTimestamp(statusEvent.timestamp));
-            const [rows] = await connection.execute(
+            const [rows] = await connection.execute<RowDataPacket[]>(
               `SELECT id_mensagem, status FROM MENSAGEM
                WHERE id_externo = ? FOR UPDATE`,
               [statusEvent.id],
             );
+            const errors = Array.isArray(statusEvent.errors) ? statusEvent.errors : [];
+            const firstError = isRecord(errors[0]) ? errors[0] : {};
+            const errorTitle = typeof firstError.title === 'string' ? firstError.title : null;
             if (!rows.length) {
               await connection.execute(
                 `INSERT INTO WHATSAPP_STATUS_PENDENTE (id_externo, status, ocorrido_em, detalhe_erro)
@@ -368,7 +424,7 @@ export class MessageService {
                   statusEvent.id,
                   statusEvent.status,
                   eventTime,
-                  statusEvent.errors?.[0]?.title?.slice(0, 255) ?? null,
+                  errorTitle?.slice(0, 255) ?? null,
                 ],
               );
               continue;
@@ -378,7 +434,7 @@ export class MessageService {
             await applyStatusEvent(connection, messageId, rows[0].status, {
               status: statusEvent.status,
               occurredAt: eventTime,
-              detail: statusEvent.errors?.[0]?.title ?? null,
+              detail: errorTitle,
             });
             statusesProcessed++;
           }

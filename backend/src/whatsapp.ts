@@ -1,7 +1,14 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 export class WhatsAppClient {
-  constructor(config = process.env, fetchImpl = fetch) {
+  readonly accessToken: string;
+  readonly phoneNumberId: string;
+  readonly verifyToken: string;
+  readonly appSecret: string;
+  readonly graphApiVersion: string;
+  private readonly fetch: typeof fetch;
+
+  constructor(config: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch) {
     this.accessToken = config.WHATSAPP_ACCESS_TOKEN || '';
     this.phoneNumberId = config.WHATSAPP_PHONE_NUMBER_ID || '';
     this.verifyToken = config.WHATSAPP_VERIFY_TOKEN || '';
@@ -10,7 +17,7 @@ export class WhatsAppClient {
     this.fetch = fetchImpl;
   }
 
-  async sendTextMessage(to, text) {
+  async sendTextMessage(to: string, text: string): Promise<string> {
     if (!this.accessToken || !this.phoneNumberId || !this.graphApiVersion) {
       throw new Error('WhatsApp API credentials are not configured.');
     }
@@ -37,10 +44,10 @@ export class WhatsAppClient {
       const result = await response.json().catch(() => null);
       const providerError = result?.error;
       const error = new Error('WhatsApp API rejected the message.');
-      error.statusCode = response.status;
-      if (Number.isInteger(providerError?.code)) error.providerCode = providerError.code;
+      Object.assign(error, { statusCode: response.status });
+      if (Number.isInteger(providerError?.code)) Object.assign(error, { providerCode: providerError.code });
       if (Number.isInteger(providerError?.error_subcode)) {
-        error.providerSubcode = providerError.error_subcode;
+        Object.assign(error, { providerSubcode: providerError.error_subcode });
       }
       throw error;
     }
@@ -51,7 +58,7 @@ export class WhatsAppClient {
     return messageId;
   }
 
-  verifyWebhook(mode, token, challenge) {
+  verifyWebhook(mode: unknown, token: unknown, challenge: unknown): string {
     if (!this.verifyToken) throw new Error('WhatsApp webhook verification is not configured.');
     if (mode === 'subscribe' && token === this.verifyToken && typeof challenge === 'string') {
       return challenge;
@@ -59,7 +66,7 @@ export class WhatsAppClient {
     throw new Error('Webhook verification failed.');
   }
 
-  verifyWebhookSignature(rawBody, signature) {
+  verifyWebhookSignature(rawBody: Buffer, signature: string | undefined): boolean {
     if (!this.appSecret || !Buffer.isBuffer(rawBody) || typeof signature !== 'string') return false;
     const expected = `sha256=${createHmac('sha256', this.appSecret).update(rawBody).digest('hex')}`;
     const receivedBuffer = Buffer.from(signature);

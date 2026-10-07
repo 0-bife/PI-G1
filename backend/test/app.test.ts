@@ -1,9 +1,17 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import type { Server } from 'node:http';
 import { afterEach, test } from 'vitest';
+import type { Pool } from 'mysql2/promise';
 import { createApp } from '../src/app.js';
 
-const servers = new Set();
+const servers = new Set<Server>();
+
+function portOf(server: Server): number {
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Test server has no TCP address.');
+  return address.port;
+}
 
 afterEach(async () => {
   await Promise.all([...servers].map((server) => new Promise((resolve) => {
@@ -12,16 +20,20 @@ afterEach(async () => {
   servers.clear();
 });
 
-async function fixture(execute) {
+interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
+  headers?: Record<string, string>;
+}
+
+async function fixture(execute: (sql: string, values?: unknown[]) => Promise<unknown>) {
   const server = createApp(
-    { execute },
-    { error() {} },
+    { execute } as unknown as Pool,
+    { error() {}, warn() {} },
     undefined,
     { API_ACCESS_TOKEN: 'test-api-token' },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
-  return (path, options = {}) => fetch(`http://127.0.0.1:${server.address().port}${path}`, {
+  return (path: string, options: TestRequestOptions = {}) => fetch(`http://127.0.0.1:${portOf(server)}${path}`, {
     ...options,
     headers: {
       Authorization: 'Bearer test-api-token',
@@ -29,7 +41,7 @@ async function fixture(execute) {
     },
   });
 }
-const json = (body, method = 'POST') => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+const json = (body: unknown, method = 'POST'): TestRequestOptions => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 test('liveness does not need MySQL; readiness reports failure', async () => {
   const request = await fixture(async () => { throw new Error('offline'); });
@@ -49,7 +61,7 @@ test('contact creation binds input as SQL parameters', async () => {
   const response = await request('/api/contatos', json({ nome: name, telefone: '5511999999999' }));
   assert.equal(response.status, 201);
   assert.equal(response.headers.get('location'), '/api/contatos/7');
-  assert.equal((await response.json()).data.id_contato, 7);
+  assert.equal((await response.json() as { data: { id_contato: number } }).data.id_contato, 7);
 });
 
 test('invalid bodies, IDs and pagination never reach the database', async () => {
