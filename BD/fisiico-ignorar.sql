@@ -1,0 +1,135 @@
+CREATE TABLE CONTATO (
+    cadastrado_em DATE,
+    nome VARCHAR(255),
+    telefone VARCHAR(255),
+    email VARCHAR(255),
+    id_contato INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    FK_CONVERSA_id_conversa INT
+);
+
+CREATE TABLE ETIQUETA (
+    id_etiqueta INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    cor VARCHAR(255),
+    nome VARCHAR(255)
+);
+
+CREATE TABLE CONVERSA (
+    criada_em DATE,
+    id_conversa INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    FK_MENSAGEM_id_mensagem INT,
+    FK_ANOTACAO_INTERNA_id_anotacao INT,
+    FK_ATENDIMENTO_id_atendimento INT
+);
+
+CREATE TABLE MENSAGEM (
+    data_hora TIMESTAMP,
+    conteudo VARCHAR(2048), -- alterado para 2048 caracteres
+    origem VARCHAR(255),
+    status VARCHAR(255),
+    referencia_midia VARCHAR(255),
+    id_mensagem INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    tipo VARCHAR(255),
+    id_externo INT
+);
+
+CREATE TABLE ANOTACAO_INTERNA (
+    texto VARCHAR(255),
+    id_anotacao INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    criada_em TIMESTAMP
+);
+
+CREATE TABLE ATENDIMENTO (
+    id_atendimento INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    status VARCHAR(255),
+    encerrado_em TIMESTAMP,
+    prazo_retorno TIME,
+    iniciado_em TIMESTAMP,
+    FK_ATRIBUICAO_id_atribuicao INT
+);
+
+CREATE TABLE USUARIO (
+    ativo BOOLEAN,
+    id_usuario INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    nome VARCHAR(255),
+    hash_senha VARCHAR(255),
+    email VARCHAR(255),
+    FK_MENSAGEM_id_mensagem INT,
+    FK_ANOTACAO_INTERNA_id_anotacao INT,
+    FK_ATRIBUICAO_id_atribuicao INT
+);
+
+CREATE TABLE ATRIBUICAO (
+    encerrada_em DATE,
+    iniciada_em DATE,
+    id_atribuicao INT NOT NULL AUTO_INCREMENT PRIMARY KEY
+);
+
+CREATE TABLE classifica (
+    fk_CONTATO_id_contato INT,
+    fk_ETIQUETA_id_etiqueta INT
+);
+
+CREATE TABLE marca (
+    fk_ETIQUETA_id_etiqueta INT,
+    fk_CONVERSA_id_conversa INT
+);
+ 
+ALTER TABLE CONTATO ADD CONSTRAINT FK_CONTATO_2
+    FOREIGN KEY (FK_CONVERSA_id_conversa)
+    REFERENCES CONVERSA (id_conversa)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE CONVERSA ADD CONSTRAINT FK_CONVERSA_2
+    FOREIGN KEY (FK_MENSAGEM_id_mensagem)
+    REFERENCES MENSAGEM (id_mensagem)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE CONVERSA ADD CONSTRAINT FK_CONVERSA_3
+    FOREIGN KEY (FK_ANOTACAO_INTERNA_id_anotacao)
+    REFERENCES ANOTACAO_INTERNA (id_anotacao)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE CONVERSA ADD CONSTRAINT FK_CONVERSA_4
+    FOREIGN KEY (FK_ATENDIMENTO_id_atendimento)
+    REFERENCES ATENDIMENTO (id_atendimento)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE ATENDIMENTO ADD CONSTRAINT FK_ATENDIMENTO_2
+    FOREIGN KEY (FK_ATRIBUICAO_id_atribuicao)
+    REFERENCES ATRIBUICAO (id_atribuicao)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE USUARIO ADD CONSTRAINT FK_USUARIO_2
+    FOREIGN KEY (FK_MENSAGEM_id_mensagem)
+    REFERENCES MENSAGEM (id_mensagem)
+    ON DELETE SET NULL;
+ 
+ALTER TABLE USUARIO ADD CONSTRAINT FK_USUARIO_3
+    FOREIGN KEY (FK_ANOTACAO_INTERNA_id_anotacao)
+    REFERENCES ANOTACAO_INTERNA (id_anotacao)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE USUARIO ADD CONSTRAINT FK_USUARIO_4
+    FOREIGN KEY (FK_ATRIBUICAO_id_atribuicao)
+    REFERENCES ATRIBUICAO (id_atribuicao)
+    ON DELETE CASCADE;
+ 
+ALTER TABLE classifica ADD CONSTRAINT FK_classifica_1
+    FOREIGN KEY (fk_CONTATO_id_contato)
+    REFERENCES CONTATO (id_contato)
+    ON DELETE SET NULL;
+ 
+ALTER TABLE classifica ADD CONSTRAINT FK_classifica_2
+    FOREIGN KEY (fk_ETIQUETA_id_etiqueta)
+    REFERENCES ETIQUETA (id_etiqueta)
+    ON DELETE SET NULL;
+ 
+ALTER TABLE marca ADD CONSTRAINT FK_marca_1
+    FOREIGN KEY (fk_ETIQUETA_id_etiqueta)
+    REFERENCES ETIQUETA (id_etiqueta)
+    ON DELETE SET NULL;
+ 
+ALTER TABLE marca ADD CONSTRAINT FK_marca_2
+    FOREIGN KEY (fk_CONVERSA_id_conversa)
+    REFERENCES CONVERSA (id_conversa)
+    ON DELETE SET NULL;

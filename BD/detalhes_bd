@@ -32,7 +32,7 @@ RELACIONAMENTOS — PARTICIPAÇÃO POR ENTIDADE
 CONTATO (0,1) — possui — CONVERSA (1,1).
 CONTATO (0,n) — classifica — ETIQUETA (0,n).
 ETIQUETA (0,n) — marca — CONVERSA (0,n).
-CONVERSA (0,n) — contem — MENSAGEM (1,1).
+CONVERSA (0,n) — contem — MENSAGEM (1,n).
 CONVERSA (0,n) — registra — ANOTACAO_INTERNA (1,1).
 CONVERSA (0,n) — origina — ATENDIMENTO (1,1).
 USUARIO (0,n) — envia — MENSAGEM (0,1).
