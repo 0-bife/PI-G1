@@ -1,0 +1,5 @@
+import { Search, MoreHorizontal } from 'lucide-react';
+import PageHeading from '../components/PageHeading.jsx';
+import { contacts } from '../data/mockData.js';
+// Contatos: busca, filtros e tabela de clientes/leads.
+export default function Contatos(){return <><PageHeading title="Contatos" text="Organize clientes, leads e oportunidades." button="Novo contato"/><div className="toolbar card"><div className="search-box wide"><Search size={17}/><input placeholder="Buscar por nome, telefone ou empresa..."/></div><select><option>Todos os status</option></select><select><option>Todas as etiquetas</option></select></div><div className="card table-wrap"><table><thead><tr><th>Nome</th><th>Telefone</th><th>Empresa</th><th>Último contato</th><th>Status</th><th></th></tr></thead><tbody>{contacts.map((r,i)=><tr key={r[0]}><td><div className="name-cell"><div className="avatar pale">{r[0].split(' ').map(x=>x[0]).join('')}</div><strong>{r[0]}</strong></div></td>{r.slice(1,4).map(x=><td key={x}>{x}</td>)}<td><span className={`tag ${i===4?'':'success'}`}>{r[4]}</span></td><td><MoreHorizontal size={18}/></td></tr>)}</tbody></table></div></>}

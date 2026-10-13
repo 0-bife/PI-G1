@@ -1,0 +1,113 @@
+import { MessageCircle, CheckCircle2, Users, Clock, Plus } from "lucide-react";
+import MetricCard from "../components/MetricCard.jsx";
+import { conversations } from "../data/mockData.js";
+// Dashboard: visão geral da operação e indicadores principais.
+export default function Dashboard() {
+  const bars = [38, 58, 46, 75, 62, 88, 70];
+  return (
+    <>
+      <div className="welcome">
+        <div>
+          <span className="eyebrow">VISÃO GERAL</span>
+          <h2>Boa tarde, Isabela 👋</h2>
+          <p>Acompanhe o desempenho do seu atendimento hoje.</p>
+        </div>
+        <button className="primary">
+          <Plus size={18} /> Novo atendimento
+        </button>
+      </div>
+      <div className="metrics">
+        <MetricCard
+          title="Mensagens recebidas"
+          value="1.284"
+          detail="+12,5% desde ontem"
+          Icon={MessageCircle}
+        />
+        <MetricCard
+          title="Mensagens respondidas"
+          value="1.109"
+          detail="86,3% respondidas"
+          Icon={CheckCircle2}
+        />
+        <MetricCard
+          title="Clientes ativos"
+          value="347"
+          detail="+28 esta semana"
+          Icon={Users}
+        />
+        <MetricCard
+          title="Tempo médio"
+          value="3m 42s"
+          detail="-18s desde ontem"
+          Icon={Clock}
+        />
+      </div>
+      <div className="dashboard-grid">
+        <article className="card chart-card">
+          <div className="card-head">
+            <div>
+              <h3>Atendimentos por dia</h3>
+              <p>Últimos 7 dias</p>
+            </div>
+            <button className="soft-btn">Esta semana</button>
+          </div>
+          <div className="bar-chart">
+            {bars.map((h, i) => (
+              <div className="bar-col" key={i}>
+                <span style={{ height: `${h}%` }} />
+                <small>
+                  {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][i]}
+                </small>
+              </div>
+            ))}
+          </div>
+        </article>
+      </div>
+      <div className="dashboard-grid lower">
+        <article className="card">
+          <div className="card-head">
+            <div>
+              <h3>Conversas recentes</h3>
+              <p>Últimos atendimentos</p>
+            </div>
+            <button className="link-btn">Ver todas</button>
+          </div>
+          {conversations.slice(0, 3).map((c) => (
+            <div className="recent-row" key={c.id}>
+              <div className="avatar pale">{c.initials}</div>
+              <div className="grow">
+                <strong>{c.name}</strong>
+                <small>{c.preview}</small>
+              </div>
+              <span className="tag">{c.status}</span>
+              <small>{c.time}</small>
+            </div>
+          ))}
+        </article>
+        <article className="card activity">
+          <div className="card-head">
+            <div>
+              <h3>Atividades recentes</h3>
+              <p>Atualizações da operação</p>
+            </div>
+          </div>
+          {[
+            "Ana finalizou 18 atendimentos",
+            "Automação “Boas-vindas” atualizada",
+            "32 novos contatos importados",
+          ].map((x, i) => (
+            <div className="activity-row" key={x}>
+              <i className={`dot d${i}`} />
+              <div>
+                <strong>{x}</strong>
+                <small>
+                  há {i + 1} hora{i ? "s" : ""}
+                </small>
+              </div>
+            </div>
+          ))}
+        </article>
+      </div>
+    </>
+  );
+}
