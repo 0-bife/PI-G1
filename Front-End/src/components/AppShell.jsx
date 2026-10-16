@@ -22,7 +22,7 @@ const navItems = [
 ];
 
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
-export default function AppShell({ page, setPage, children }) {
+export default function AppShell({ page, setPage, user, onLogout, children }) {
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -44,12 +44,12 @@ export default function AppShell({ page, setPage, children }) {
           <div className="mini-profile">
             <div className="avatar">IB</div>
             <div>
-              <strong>Isabela</strong>
-              <small>Administradora</small>
+              <strong>{user?.nome ?? 'Usuário'}</strong>
+              <small>{user?.perfil === 'admin' ? 'Administradora' : 'Atendente'}</small>
             </div>
             <MoreHorizontal size={18} />
           </div>
-          <button className="logout" onClick={() => setPage("Login")}>
+          <button className="logout" onClick={onLogout}>
             <LogOut size={18} /> Sair
           </button>
         </div>
@@ -68,7 +68,7 @@ export default function AppShell({ page, setPage, children }) {
               <Bell size={19} />
               <i />
             </button>
-            <div className="avatar">IB</div>
+            <div className="avatar">{user?.nome?.charAt(0) ?? 'IB'}</div>
           </div>
         </header>
         <section className="page-content">{children}</section>
