@@ -30,7 +30,7 @@ Configure `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha-o fora do 
 
 ### Integração com o frontend
 
-Defina `API_BASE_URL` como a origem da API (`https://api.example.com`) na configuração de ambiente do frontend; não embuta tokens, senhas ou segredos no bundle. Se a interface estiver em outra origem, configure `CORS_ORIGINS` no backend com origens exatas separadas por vírgula, incluindo protocolo e porta quando necessário (por exemplo, `http://localhost:5173,https://front.example.com`). Não use `*`; o backend não usa cookies nem `Access-Control-Allow-Credentials`.
+Defina `VITE_API_BASE_URL` como a origem da API (`https://api.example.com`) no ambiente do Vite; não embuta tokens, senhas ou segredos no bundle. Se a interface estiver em outra origem, configure `CORS_ORIGINS` no backend com origens exatas separadas por vírgula, incluindo protocolo e porta quando necessário (por exemplo, `http://localhost:5173,https://front.example.com`). Não use `*`; o backend não usa cookies nem `Access-Control-Allow-Credentials`.
 
 Centralize autenticação, respostas `204` e erros `401` num cliente HTTP. Exemplo TypeScript independente de framework (a origem deve ser injetada na inicialização da aplicação):
 
@@ -116,7 +116,7 @@ Se a rede falhar, o cliente limpou o token, mas a sessão do servidor não foi r
 
 Fluxo sugerido de telas: `/login` valida credenciais e guarda o token; a área autenticada carrega `/api/conversas?page=1&limit=20`; a seleção de conversa carrega `/api/conversas/:id/mensagens?page=1&limit=20`, responsáveis e etiquetas; envio de texto usa `POST /api/conversas/:id/mensagens`; histórico de entrega usa `/api/mensagens/:id/status`. Exiba anotações de `/api/conversas/:id/anotacoes` em área interna distinta das mensagens WhatsApp. Uma tela de troca de senha autenticada deve exigir senha atual e nova senha. O frontend não deve permitir editar/apagar mensagens nem atribuir autoria via body.
 
-Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. Esta etapa documenta o contrato: `Front-End/` ainda não tem aplicação/telas configuradas e nenhuma UI é criada aqui.
+Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. A implementação das telas e do cliente HTTP está em `Front-End/`; consulte `Front-End/README.md` para configuração e exemplos.
 
 ## Regras do domínio
 
