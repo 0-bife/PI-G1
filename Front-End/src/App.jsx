@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import Conversas from './pages/Conversas.jsx';
 import Contatos from './pages/Contatos.jsx';
 import Relatorios from './pages/Relatorios.jsx';
-import Automacoes from './pages/Automacoes.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
 
 // App controla qual tela está aberta no protótipo navegável.
@@ -18,7 +17,6 @@ export default function App() {
     Conversas: <Conversas />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
-    Automações: <Automacoes />,
     Configurações: <Configuracoes />,
   };
 
