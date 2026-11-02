@@ -1,6 +1,7 @@
 import type { Pool, PoolConnection } from 'mysql2/promise';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
 import type { WhatsAppClient } from './whatsapp.js';
+import { assignRoundRobin } from './round-robin.js';
 
 const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
 const STATUS_RANK: Record<string, number> = { pending: 0, sent: 1, delivered: 2, read: 3, failed: 4 };
@@ -87,7 +88,11 @@ async function ensureContactConversation(connection: PoolConnection, phone: stri
   };
 }
 
-async function ensureOpenAttendance(connection: PoolConnection, conversationId: number): Promise<number> {
+async function ensureOpenAttendance(
+  connection: PoolConnection,
+  conversationId: number,
+  enableRoundRobin: boolean,
+): Promise<number> {
   const [rows] = await connection.execute<RowDataPacket[]>(
     `SELECT id_atendimento FROM ATENDIMENTO
      WHERE FK_CONVERSA_id_conversa = ? AND encerrado_em IS NULL
@@ -101,6 +106,7 @@ async function ensureOpenAttendance(connection: PoolConnection, conversationId: 
      VALUES ('open', UTC_TIMESTAMP(), NULL, ?)`,
     [conversationId],
   );
+  if (enableRoundRobin) await assignRoundRobin(connection, result.insertId);
   return result.insertId;
 }
 
@@ -243,6 +249,7 @@ export class MessageService {
     private readonly db: Pool,
     private readonly whatsappClient: WhatsAppClient,
     private readonly logger: Pick<Console, 'error' | 'warn'> = console,
+    private readonly enableRoundRobin = true,
   ) {
   }
 
@@ -273,7 +280,11 @@ export class MessageService {
         ({ conversationId: targetConversationId } = await ensureContactConversation(connection, targetPhone));
       }
       if (!targetPhone) throw new Error('The conversation has no contact phone number.');
-      const attendanceId = await ensureOpenAttendance(connection, targetConversationId);
+      const attendanceId = await ensureOpenAttendance(
+        connection,
+        targetConversationId,
+        this.enableRoundRobin,
+      );
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO MENSAGEM
            (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario)
@@ -546,7 +557,7 @@ export class MessageService {
             );
             if (existing.length) continue;
 
-            await ensureOpenAttendance(connection, conversationId);
+            await ensureOpenAttendance(connection, conversationId, this.enableRoundRobin);
             const { content, mediaReference } = extractMessageContent(message);
             const occurredAt = mysqlDateTime(fromMetaTimestamp(message.timestamp));
             try {

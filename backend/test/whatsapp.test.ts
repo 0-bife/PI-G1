@@ -282,7 +282,7 @@ async function fixture(
     database as unknown as Pool,
     logger,
     client,
-    { JWT_SECRET: jwtSecret },
+    { JWT_SECRET: jwtSecret, ROUND_ROBIN_ENABLED: 'false' },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');

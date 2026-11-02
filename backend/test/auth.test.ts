@@ -252,7 +252,7 @@ test('login, current-user, logout and role checks are exposed as HTTP routes', a
     db as unknown as Pool,
     { error: () => {}, warn: () => {} },
     undefined,
-    { JWT_SECRET: jwtSecret },
+    { JWT_SECRET: jwtSecret, ROUND_ROBIN_ENABLED: 'false' },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');

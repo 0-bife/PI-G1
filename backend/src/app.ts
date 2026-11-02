@@ -14,6 +14,7 @@ import {
   WhatsAppDeliveryError,
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
+import { AnalyticsService } from './analytics-service.js';
 
 function fail(message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status: 400 });
@@ -54,6 +55,30 @@ function mysqlDateTimeFromRfc3339(value: string): string | null {
   return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+function reportDate(value: unknown, name: string, end = false): string {
+  if (typeof value !== 'string') throw new RequestValidationError(`${name} é obrigatório.`);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnly) {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    if (!Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value) {
+      if (!end) return parsed.toISOString().slice(0, 19).replace('T', ' ');
+      parsed.setUTCDate(parsed.getUTCDate() + 1);
+      return parsed.toISOString().slice(0, 19).replace('T', ' ');
+    }
+  }
+  const parsed = mysqlDateTimeFromRfc3339(value);
+  if (!parsed) throw new RequestValidationError(`${name} deve ser uma data YYYY-MM-DD ou RFC 3339.`);
+  return parsed;
+}
+
+function configuredMinutes(config: NodeJS.ProcessEnv): number {
+  const value = Number(config.ATTENDANCE_ALERT_MINUTES ?? 30);
+  if (!Number.isInteger(value) || value < 1 || value > 10080) {
+    throw new Error('ATTENDANCE_ALERT_MINUTES must be an integer between 1 and 10080.');
+  }
+  return value;
+}
+
 function errorInfo(error: unknown): { status?: number; code?: string; message?: string; type?: string } {
   if (!isRecord(error)) return {};
   return {
@@ -72,9 +97,11 @@ export function createApp(
 ) {
   const app = express();
   app.disable('x-powered-by');
-  const messages = new MessageService(db, whatsappClient, logger);
+  const enableRoundRobin = config.ROUND_ROBIN_ENABLED !== 'false';
+  const messages = new MessageService(db, whatsappClient, logger, enableRoundRobin);
   const contacts = new ContactService(db);
-  const conversations = new ConversationService(db);
+  const conversations = new ConversationService(db, enableRoundRobin);
+  const analytics = new AnalyticsService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
@@ -354,7 +381,7 @@ export function createApp(
       if (!e164(phone)) throw new RequestValidationError('telefone E.164 inválido.');
       phoneFilter = phone;
     }
-    return res.json(await conversations.listConversations(page, limit, phoneFilter));
+    return res.json(await conversations.listConversations(page, limit, phoneFilter, req.authenticatedUser));
   });
   app.post('/api/conversas', async (req: Request, res: Response) => {
     if (req.authenticatedUser?.perfil !== 'admin' && req.authenticatedUser?.perfil !== 'atendente') {
@@ -449,6 +476,45 @@ export function createApp(
       return res.status(404).json({ error: 'Assignment not found.' });
     }
     return res.status(204).end();
+  });
+  app.get('/api/relatorios/atendimentos', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const start = reportDate(req.query.dataInicial ?? req.query.data_inicial, 'dataInicial');
+    const end = reportDate(req.query.dataFinal ?? req.query.data_final, 'dataFinal', true);
+    if (start >= end) throw new RequestValidationError('dataInicial deve ser anterior a dataFinal.');
+    let userId: number | undefined;
+    if (req.authenticatedUser.perfil === 'atendente') {
+      userId = req.authenticatedUser.id_usuario;
+    } else if (req.query.usuarioId !== undefined) {
+      userId = positiveInteger(req.query.usuarioId, 'usuarioId');
+    }
+    return res.json({
+      data: await analytics.attendanceReport({ start, end, userId }),
+      filtros: { dataInicial: start, dataFinal: end, usuarioId: userId ?? null },
+    });
+  });
+  app.get('/api/dashboard/atendimentos', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    let userId: number | undefined;
+    if (req.authenticatedUser.perfil === 'atendente') {
+      userId = req.authenticatedUser.id_usuario;
+    } else if (req.query.usuarioId !== undefined) {
+      userId = positiveInteger(req.query.usuarioId, 'usuarioId');
+    }
+    return res.json({ data: await analytics.dashboard(userId) });
+  });
+  app.get('/api/alertas/atendimentos', async (req: Request, res: Response) => {
+    if (!req.authenticatedUser) throw new AuthenticationError();
+    const minutes = req.query.minutos !== undefined
+      ? positiveInteger(req.query.minutos, 'minutos', 10080)
+      : configuredMinutes(config);
+    const userId = req.authenticatedUser.perfil === 'atendente'
+      ? req.authenticatedUser.id_usuario
+      : undefined;
+    return res.json({
+      data: await analytics.alerts(minutes, userId),
+      parametros: { minutosSemResposta: minutes },
+    });
   });
   app.get('/api/conversas/:id/etiquetas', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');

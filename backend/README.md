@@ -195,6 +195,18 @@ Trate `400` como validação, `401` limpando token e retornando ao login, `403` 
 
 Mensagem recebida reabre o fluxo criando novo atendimento se o anterior estiver encerrado. Não reabrir o mesmo registro. Listagens mostram todos os responsáveis ativos; destaque visual usa maior `iniciada_em` e, em empate, maior `id_atribuicao`.
 
+O rodízio é automático ao criar um atendimento: somente usuários ativos com perfil `atendente` participam; o próximo é escolhido pela menor quantidade de atribuições abertas, depois pela data da última atribuição e pelo menor ID. Se não houver atendente ativo, o atendimento permanece sem atribuição. A lista de conversas de um atendente contém somente conversas com atendimento aberto atribuído a ele; administradores visualizam todas.
+
+### Relatórios, dashboard e alertas
+
+| Método e rota | Acesso | Contrato |
+| --- | --- | --- |
+| `GET /api/relatorios/atendimentos?dataInicial=2026-01-01&dataFinal=2026-01-31&usuarioId=45` | Autenticado | Relatório agrupado por atendente com realizados, pendentes, tempo médio de resposta/atendimento em segundos, taxa de conclusão e SLA em percentual. `dataFinal` é inclusiva; atendentes sempre consultam somente os próprios dados e administradores podem filtrar por `usuarioId`. |
+| `GET /api/dashboard/atendimentos?usuarioId=45` | Autenticado | Totais gerais e ranking de atendentes com quantidade realizada/pendente, taxa de conclusão e tempo médio de resposta. Atendentes recebem somente os próprios dados. |
+| `GET /api/alertas/atendimentos?minutos=30` | Autenticado | Lista atendimentos abertos cuja última mensagem é do contato (ou ainda não há mensagem) há pelo menos o limite informado. Atendentes recebem somente seus alertas; administradores recebem todos. Sem `minutos`, usa `ATTENDANCE_ALERT_MINUTES` (padrão 30). |
+
+As métricas consideram o horário de início do atendimento no intervalo informado. O tempo médio de resposta é calculado entre a primeira mensagem do contato e a primeira resposta de usuário no ciclo; SLA é a proporção de atendimentos concluídos até `prazo_retorno` (atendimentos sem prazo contam como dentro do SLA).
+
 ### Mensagens e anotações
 
 | Método e rota | Acesso | Contrato |
@@ -267,6 +279,7 @@ WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_VERIFY_TOKEN=
 WHATSAPP_APP_SECRET=
 WHATSAPP_API_VERSION=
+ATTENDANCE_ALERT_MINUTES=30
 ```
 
 Gere `JWT_SECRET` com pelo menos 32 bytes aleatórios e configure-o em armazenamento de segredos na Azure. Defina `WHATSAPP_API_VERSION` para uma versão Graph ainda suportada pela aplicação Meta. `JWT_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos; nunca os versione nem registre em logs ou respostas.

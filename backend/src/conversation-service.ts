@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { Pool, PoolConnection } from 'mysql2/promise';
+import { assignRoundRobin } from './round-robin.js';
 
 interface ConversationRow extends RowDataPacket {
   id_conversa: number;
@@ -159,20 +160,42 @@ export type AddAssignmentResult =
   | { kind: 'inactive-user' };
 
 export class ConversationService {
-  constructor(private readonly db: Pool) {}
+  constructor(
+    private readonly db: Pool,
+    private readonly enableRoundRobin = true,
+  ) {}
 
   async listConversations(
     page: number,
     limit: number,
     phone?: string,
+    viewer?: { id_usuario: number; perfil: 'admin' | 'atendente' },
   ): Promise<{ data: object[]; page: number; limit: number }> {
     const offset = (page - 1) * limit;
-    const where = phone ? 'WHERE c.telefone = ?' : '';
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    if (phone) {
+      conditions.push('c.telefone = ?');
+      values.push(phone);
+    }
+    if (viewer?.perfil === 'atendente') {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM ATENDIMENTO assigned_a
+        JOIN ATRIBUICAO assigned_ass
+          ON assigned_ass.FK_ATENDIMENTO_id_atendimento = assigned_a.id_atendimento
+         AND assigned_ass.encerrada_em IS NULL
+        WHERE assigned_a.FK_CONVERSA_id_conversa = v.id_conversa
+          AND assigned_a.encerrado_em IS NULL
+          AND assigned_ass.FK_USUARIO_id_usuario = ?
+      )`);
+      values.push(viewer.id_usuario);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [rows] = await this.db.execute<ConversationRow[]>(
       `${conversationSelect} ${where}
        ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
        LIMIT ${limit} OFFSET ${offset}`,
-      phone ? [phone] : [],
+      values as (string | number)[],
     );
     const attendanceIds = rows
       .map((row) => row.id_atendimento_aberto)
@@ -299,6 +322,7 @@ export class ConversationService {
          VALUES ('open', NULL, UTC_TIMESTAMP(), ?)`,
         [conversationId],
       );
+      if (this.enableRoundRobin) await assignRoundRobin(connection, result.insertId);
       return result.insertId;
     });
   }

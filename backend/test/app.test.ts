@@ -63,7 +63,7 @@ async function fixture(
     db as unknown as Pool,
     { error() {}, warn() {} },
     undefined,
-    { JWT_SECRET: jwtSecret, CORS_ORIGINS: corsOrigins },
+    { JWT_SECRET: jwtSecret, CORS_ORIGINS: corsOrigins, ROUND_ROBIN_ENABLED: 'false' },
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
