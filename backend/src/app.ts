@@ -8,6 +8,7 @@ import {
 } from './auth.js';
 import { ContactService } from './contact-service.js';
 import { ConversationService } from './conversation-service.js';
+import { createAnalyticsRouter } from './analytics-routes.js';
 import {
   MessageConversationNotFoundError,
   MessageService,
@@ -615,6 +616,8 @@ export function createApp(
       return res.status(500).json({ error: 'Failed to send message.' });
     }
   });
+
+  app.use('/api', createAnalyticsRouter(db));
 
   app.use((_req: Request, res: Response) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
