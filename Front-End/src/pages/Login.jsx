@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { MessageCircle, Eye } from 'lucide-react';
-import Logo from '../components/Logo.jsx';
+import { Clock, Eye, MessageCircle } from 'lucide-react';
 import { login } from '../api.ts';
+import Logo from '../components/Logo.jsx';
 
 export default function Login({ onLogin, initialError = '' }) {
   const [email, setEmail] = useState('');
@@ -27,22 +27,90 @@ export default function Login({ onLogin, initialError = '' }) {
     <div className="login-page">
       <section className="login-panel">
         <Logo />
+
         <form className="login-copy" onSubmit={handleSubmit}>
           <span className="eyebrow">BEM-VINDO DE VOLTA</span>
           <h1>Atendimento que acontece <em>in a blink.</em></h1>
           <p>Centralize conversas, clientes e resultados em uma experiência simples.</p>
-          <label>E-mail<input required type="email" placeholder="voce@empresa.com" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-          <label>Senha<div className="password"><input required type="password" placeholder="••••••••" value={senha} onChange={(event) => setSenha(event.target.value)} /><Eye size={18} /></div></label>
-          <div className="login-links"><label><input type="checkbox" /> Lembrar de mim</label><button type="button">Esqueci minha senha</button></div>
+
+          <label>
+            E-mail
+            <input
+              required
+              type="email"
+              placeholder="voce@empresa.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+
+          <label>
+            Senha
+            <div className="password">
+              <input
+                required
+                type="password"
+                placeholder="••••••••"
+                value={senha}
+                onChange={(event) => setSenha(event.target.value)}
+              />
+              <Eye size={18} />
+            </div>
+          </label>
+
+          <div className="login-links">
+            <label><input type="checkbox" /> Lembrar de mim</label>
+            <button type="button">Esqueci minha senha</button>
+          </div>
+
           {error && <p className="api-error" role="alert">{error}</p>}
-          <button className="primary login-button" type="submit" disabled={loading}>{loading ? 'Entrando...' : 'Entrar'}</button>
-          <p className="signup">Ainda não tem conta? <button type="button">Criar conta</button></p>
+
+          <button className="primary login-button" type="submit" disabled={loading}>
+            {loading ? 'Entrando...' : 'Entrar'}
+          </button>
+
+          <p className="signup">
+            Ainda não tem conta? <button type="button">Criar conta</button>
+          </p>
         </form>
+
         <small className="copyright">© 2026 in a blink. Todos os direitos reservados.</small>
       </section>
+
       <aside className="login-visual">
-        <div className="visual-card vc1"><MessageCircle size={38} /></div>
-        <div className="visual-title"><span>CONVERSAS QUE FLUEM</span><h2>Mais proximidade.<br />Menos complicação.</h2></div>
+        <div className="visual-card vc1">
+          <MessageCircle size={38} />
+          <div>
+            <b>+1.284</b>
+            <span>mensagens hoje</span>
+          </div>
+        </div>
+
+        <div className="visual-phone">
+          <div className="phone-head">
+            <div className="avatar">MS</div>
+            <div>
+              <b>Mariana Souza</b>
+              <span>online</span>
+            </div>
+          </div>
+          <div className="mini-msg left">Olá! Gostaria de conhecer os planos.</div>
+          <div className="mini-msg right">Claro! Vou te ajudar 😊</div>
+          <div className="mini-msg left">Perfeito, obrigada!</div>
+        </div>
+
+        <div className="visual-card vc2">
+          <Clock />
+          <div>
+            <b>3m 42s</b>
+            <span>tempo médio</span>
+          </div>
+        </div>
+
+        <div className="visual-title">
+          <span>CONVERSAS QUE FLUEM</span>
+          <h2>Mais proximidade.<br />Menos complicação.</h2>
+        </div>
       </aside>
     </div>
   );

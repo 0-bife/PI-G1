@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Phone, MoreHorizontal, Paperclip, Send, Plus, Tag } from 'lucide-react';
+import {
+  Building2,
+  MoreHorizontal,
+  Paperclip,
+  Phone,
+  Plus,
+  Search,
+  Send,
+  Tag,
+} from 'lucide-react';
 import {
   addConversationLabel,
   createAnnotation,
@@ -43,27 +52,38 @@ export default function Conversations() {
         setLabels(labelPage.data);
         setSelected(conversationPage.data[0] ?? null);
       })
-      .catch((requestError) => active && setError(requestError.message))
-      .finally(() => active && setLoading(false));
-    return () => { active = false; };
+      .catch((requestError) => {
+        if (active) setError(requestError.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
+  const selectedId = selected?.id_conversa;
+
   useEffect(() => {
-    if (!selected) {
+    if (selectedId === undefined) {
       setMessages([]);
       setAnnotations([]);
       setConversationLabels([]);
-      return;
+      return undefined;
     }
+
     setMessages([]);
     setAnnotations([]);
     setConversationLabels([]);
     setError('');
     let active = true;
+
     Promise.all([
-      getConversationMessages(selected.id_conversa),
-      getConversationAnnotations(selected.id_conversa),
-      getConversationLabels(selected.id_conversa),
+      getConversationMessages(selectedId),
+      getConversationAnnotations(selectedId),
+      getConversationLabels(selectedId),
     ])
       .then(([messagePage, annotationPage, labelResult]) => {
         if (!active) return;
@@ -71,19 +91,28 @@ export default function Conversations() {
         setAnnotations(annotationPage.data);
         setConversationLabels(labelResult.data);
       })
-      .catch((requestError) => active && setError(requestError.message));
-    return () => { active = false; };
-  }, [selected]);
+      .catch((requestError) => {
+        if (active) setError(requestError.message);
+      });
 
-  const filteredConversations = useMemo(
-    () => conversations.filter((conversation) =>
-      `${conversation.nome ?? ''} ${conversation.telefone}`.toLowerCase().includes(searchTerm.toLowerCase())),
-    [conversations, searchTerm],
-  );
+    return () => {
+      active = false;
+    };
+  }, [selectedId]);
+
+  const filteredConversations = useMemo(() => {
+    const query = searchTerm.trim().toLocaleLowerCase();
+    return conversations.filter((conversation) =>
+      `${conversation.nome ?? ''} ${conversation.telefone}`
+        .toLocaleLowerCase()
+        .includes(query),
+    );
+  }, [conversations, searchTerm]);
 
   async function handleSendMessage(event) {
     event.preventDefault();
     if (!selected || !messageText.trim()) return;
+
     setBusy(true);
     setError('');
     try {
@@ -104,6 +133,7 @@ export default function Conversations() {
   async function handleCreateAnnotation(event) {
     event.preventDefault();
     if (!selected || !annotationText.trim()) return;
+
     setBusy(true);
     setError('');
     try {
@@ -122,10 +152,11 @@ export default function Conversations() {
     setBusy(true);
     setError('');
     try {
-      await createConversation(phone.trim());
+      const requestedPhone = phone.trim();
+      await createConversation(requestedPhone);
       const result = await getConversations();
       setConversations(result.data);
-      const created = result.data.find((conversation) => conversation.telefone === phone.trim());
+      const created = result.data.find((conversation) => conversation.telefone === requestedPhone);
       setSelected(created ?? result.data[0] ?? null);
       setPhone('');
       setShowCreate(false);
@@ -137,8 +168,10 @@ export default function Conversations() {
   }
 
   async function handleAddLabel(event) {
-    const labelId = Number(event.target.value);
+    const select = event.currentTarget;
+    const labelId = Number(select.value);
     if (!selected || !labelId) return;
+
     setBusy(true);
     setError('');
     try {
@@ -148,7 +181,7 @@ export default function Conversations() {
       setError(requestError.message);
     } finally {
       setBusy(false);
-      event.target.value = '';
+      select.value = '';
     }
   }
 
@@ -159,30 +192,54 @@ export default function Conversations() {
         <section className="conversation-list">
           <div className="search-box">
             <Search size={17} />
-            <input type="text" placeholder="Buscar conversa..." value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} />
+            <input
+              type="text"
+              placeholder="Buscar conversa..."
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
           </div>
-          <button className="new-conversation" onClick={() => setShowCreate((shown) => !shown)} disabled={busy}>
+          <button
+            className="new-conversation"
+            type="button"
+            onClick={() => setShowCreate((shown) => !shown)}
+            disabled={busy}
+          >
             <Plus size={16} /> Nova conversa
           </button>
           {showCreate && (
             <form className="new-conversation-form" onSubmit={handleCreateConversation}>
-              <input required type="tel" placeholder="Telefone E.164 (+5511999999999)" value={phone} onChange={(event) => setPhone(event.target.value)} />
+              <input
+                required
+                type="tel"
+                placeholder="Telefone E.164 (+5511999999999)"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+              />
               <button type="submit" disabled={busy}>Criar</button>
             </form>
           )}
           <div className="conversation-items">
             {loading && <p className="empty-state">Carregando conversas...</p>}
-            {!loading && filteredConversations.length === 0 && <p className="empty-state">Nenhuma conversa encontrada.</p>}
+            {!loading && filteredConversations.length === 0 && (
+              <p className="empty-state">Nenhuma conversa encontrada.</p>
+            )}
             {filteredConversations.map((conversation) => (
               <button
                 key={conversation.id_conversa}
+                type="button"
                 onClick={() => setSelected(conversation)}
                 disabled={busy}
-                className={`conversation-item ${selected?.id_conversa === conversation.id_conversa ? 'selected' : ''}`}
+                className={`conversation-item ${selectedId === conversation.id_conversa ? 'selected' : ''}`}
               >
-                <div className="avatar">{(conversation.nome ?? conversation.telefone).charAt(0)}</div>
+                <div className="avatar">
+                  {(conversation.nome ?? conversation.telefone).charAt(0)}
+                </div>
                 <div className="conv-copy">
-                  <div><strong>{conversation.nome || conversation.telefone}</strong><span>{displayDate(conversation.ultima_mensagem_em)}</span></div>
+                  <div>
+                    <strong>{conversation.nome || conversation.telefone}</strong>
+                    <span>{displayDate(conversation.ultima_mensagem_em)}</span>
+                  </div>
                   <p>{conversation.telefone}</p>
                 </div>
               </button>
@@ -195,54 +252,141 @@ export default function Conversations() {
             <section className="chat">
               <div className="chat-head">
                 <div className="customer-top">
-                  <div className="avatar">{(selected.nome ?? selected.telefone).charAt(0)}</div>
-                  <div><strong>{selected.nome || selected.telefone}</strong><p>{selected.telefone}</p></div>
+                  <div className="avatar">
+                    {(selected.nome ?? selected.telefone).charAt(0)}
+                  </div>
+                  <div>
+                    <strong>{selected.nome || selected.telefone}</strong>
+                    <p>{selected.telefone}</p>
+                  </div>
                 </div>
-                <div className="chat-actions"><button aria-label="Telefone"><Phone size={19} /></button><button aria-label="Mais opções"><MoreHorizontal size={19} /></button></div>
+                <div className="chat-actions">
+                  <button type="button" aria-label="Telefone">
+                    <Phone size={19} />
+                  </button>
+                  <button type="button" aria-label="Mais opções">
+                    <MoreHorizontal size={19} />
+                  </button>
+                </div>
               </div>
               <div className="messages">
-                {messages.length === 0 && <p className="empty-state">Nenhuma mensagem nesta conversa.</p>}
+                {messages.length === 0 && (
+                  <p className="empty-state">Nenhuma mensagem nesta conversa.</p>
+                )}
                 {messages.map((message) => (
-                  <div key={message.id_mensagem} className={`message ${message.origem === 'contato' ? 'received' : 'sent'}`}>
+                  <div
+                    key={message.id_mensagem}
+                    className={`message ${message.origem === 'contato' ? 'received' : 'sent'}`}
+                  >
                     {message.conteudo || `[${message.tipo}]`}
                     <small>{displayDate(message.data_hora)}</small>
                   </div>
                 ))}
               </div>
               <form className="message-box" onSubmit={handleSendMessage}>
-                <button type="button" aria-label="Anexar arquivo" disabled><Paperclip size={20} /></button>
-                <input type="text" placeholder="Digite uma mensagem..." value={messageText} onChange={(event) => setMessageText(event.target.value)} />
-                <button className="send-button" type="submit" aria-label="Enviar mensagem" disabled={busy || !messageText.trim()}><Send size={19} /></button>
+                <button type="button" aria-label="Anexar arquivo" disabled>
+                  <Paperclip size={20} />
+                </button>
+                <input
+                  type="text"
+                  placeholder="Digite uma mensagem..."
+                  value={messageText}
+                  onChange={(event) => setMessageText(event.target.value)}
+                />
+                <button
+                  className="send-button"
+                  type="submit"
+                  aria-label="Enviar mensagem"
+                  disabled={busy || !messageText.trim()}
+                >
+                  <Send size={19} />
+                </button>
               </form>
             </section>
 
             <aside className="customer-panel">
               <div className="customer-profile">
-                <div className="avatar large">{(selected.nome ?? selected.telefone).charAt(0)}</div>
+                <div className="avatar large">
+                  {(selected.nome ?? selected.telefone).charAt(0)}
+                </div>
                 <h3>{selected.nome || selected.telefone}</h3>
-                <span className="status-badge">{selected.atendimento_aberto?.status || 'Sem atendimento ativo'}</span>
+                <span className="status-badge">
+                  {selected.atendimento_aberto?.status || 'Sem atendimento ativo'}
+                </span>
               </div>
               <div className="customer-details">
-                <div><span>Telefone</span><strong>{selected.telefone}</strong></div>
-                <div><span>E-mail</span><strong>{selected.email || 'Não informado'}</strong></div>
+                <div>
+                  <span>Telefone</span>
+                  <strong>{selected.telefone}</strong>
+                </div>
+                <div>
+                  <span>Contato</span>
+                  <strong>
+                    <Building2 size={15} />
+                    {selected.nome || selected.telefone}
+                  </strong>
+                </div>
+                <div>
+                  <span>E-mail</span>
+                  <strong>{selected.email || 'Não informado'}</strong>
+                </div>
               </div>
               <div className="customer-section">
                 <h4>Etiquetas</h4>
-                <div className="tags">{conversationLabels.map((label) => <span className="tag" key={label.id_etiqueta}>{label.nome}</span>)}</div>
-                <label className="label-select"><Tag size={15} /><select defaultValue="" onChange={handleAddLabel} disabled={busy}><option value="">Associar etiqueta...</option>{labels.filter((label) => !conversationLabels.some((current) => current.id_etiqueta === label.id_etiqueta)).map((label) => <option value={label.id_etiqueta} key={label.id_etiqueta}>{label.nome}</option>)}</select></label>
+                <div className="tags">
+                  {conversationLabels.map((label) => (
+                    <span className="tag" key={label.id_etiqueta}>{label.nome}</span>
+                  ))}
+                </div>
+                <label className="label-select">
+                  <Tag size={15} />
+                  <select defaultValue="" onChange={handleAddLabel} disabled={busy}>
+                    <option value="">Associar etiqueta...</option>
+                    {labels
+                      .filter((label) => !conversationLabels.some(
+                        (current) => current.id_etiqueta === label.id_etiqueta,
+                      ))
+                      .map((label) => (
+                        <option value={label.id_etiqueta} key={label.id_etiqueta}>
+                          {label.nome}
+                        </option>
+                      ))}
+                  </select>
+                </label>
               </div>
               <div className="customer-section">
                 <h4>Notas internas</h4>
                 <form onSubmit={handleCreateAnnotation}>
-                  <textarea placeholder="Adicione uma observação sobre este atendimento..." value={annotationText} onChange={(event) => setAnnotationText(event.target.value)} />
-                  <button className="primary note-button" type="submit" disabled={busy || !annotationText.trim()}>Salvar nota</button>
+                  <textarea
+                    placeholder="Adicione uma observação sobre este atendimento..."
+                    value={annotationText}
+                    onChange={(event) => setAnnotationText(event.target.value)}
+                  />
+                  <button
+                    className="primary note-button"
+                    type="submit"
+                    disabled={busy || !annotationText.trim()}
+                  >
+                    Salvar nota
+                  </button>
                 </form>
-                <div className="annotation-list">{annotations.map((annotation) => <article key={annotation.id_anotacao}><p>{annotation.texto}</p><small>{annotation.autor_nome} · {displayDate(annotation.criada_em)}</small></article>)}</div>
+                <div className="annotation-list">
+                  {annotations.map((annotation) => (
+                    <article key={annotation.id_anotacao}>
+                      <p>{annotation.texto}</p>
+                      <small>
+                        {annotation.autor_nome} · {displayDate(annotation.criada_em)}
+                      </small>
+                    </article>
+                  ))}
+                </div>
               </div>
             </aside>
           </>
         ) : (
-          <section className="chat empty-chat"><p>{loading ? 'Carregando conversa...' : 'Selecione uma conversa ou crie uma nova.'}</p></section>
+          <section className="chat empty-chat">
+            <p>{loading ? 'Carregando conversa...' : 'Selecione uma conversa ou crie uma nova.'}</p>
+          </section>
         )}
       </div>
     </>
