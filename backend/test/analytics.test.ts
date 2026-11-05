@@ -19,6 +19,8 @@ interface SqlCall {
   values: unknown[];
 }
 
+type RequestAuth = 'valid' | 'missing' | 'invalid';
+
 function portOf(server: Server): number {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Test server has no TCP address.');
@@ -66,10 +68,12 @@ async function fixture(
   ).listen(0, '127.0.0.1');
   servers.add(server);
   await once(server, 'listening');
-  return async (path: string, authenticated = true) => fetch(
-    `http://127.0.0.1:${portOf(server)}${path}`,
-    authenticated ? { headers: { Authorization: `Bearer ${token}` } } : {},
-  );
+  return async (path: string, auth: RequestAuth = 'valid') => {
+    const headers: Record<string, string> = {};
+    if (auth === 'valid') headers.Authorization = `Bearer ${token}`;
+    if (auth === 'invalid') headers.Authorization = 'Bearer invalid-token';
+    return fetch(`http://127.0.0.1:${portOf(server)}${path}`, { headers });
+  };
 }
 
 test('reports validate required inclusive dates before accessing analytics data', async () => {
@@ -89,7 +93,7 @@ test('reports validate required inclusive dates before accessing analytics data'
   assert.equal((await request('/api/relatorios/atendimentos?dataInicial=2026-03-01&dataFinal=2026-03-31')).status, 200);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].values, ['2026-03-01', '2026-03-31', '2026-03-01', '2026-03-31']);
-}
+});
 
 test('attendants cannot expand report or dashboard scope with usuarioId', async () => {
   const calls: SqlCall[] = [];
@@ -132,7 +136,7 @@ test('attendants cannot expand report or dashboard scope with usuarioId', async 
   assert.deepEqual(calls[0].values, ['2026-03-01', '2026-03-31', 7, '2026-03-01', '2026-03-31', 7]);
   assert.deepEqual(calls[1].values, [7]);
   assert.deepEqual(calls[2].values, [7]);
-}
+});
 
 test('alerts default to 30 minutes and restrict attendants to active own assignments', async () => {
   const calls: SqlCall[] = [];
@@ -159,9 +163,9 @@ test('alerts default to 30 minutes and restrict attendants to active own assignm
   assert.equal((await request('/api/alertas/atendimentos?minutos=0')).status, 400);
   assert.equal((await request('/api/alertas/atendimentos?minutos=30&minutos=60')).status, 400);
   assert.equal(calls.length, 1);
-}
+});
 
-test('administrator can apply a validated report filter and unauthenticated calls get 401', async () => {
+test('administrator can apply a validated report filter and access the dashboard and alerts', async () => {
   const calls: SqlCall[] = [];
   const request = await fixture(
     { id_usuario: 1, perfil: 'admin' },
@@ -185,6 +189,17 @@ test('administrator can apply a validated report filter and unauthenticated call
       if (sql.includes('FROM USUARIO u')) {
         return [[{ id: 45, nome: 'Atendente', atendimentos_realizados: 3 }], []];
       }
+      if (sql.includes('FROM ATENDIMENTO a') && sql.includes('TIMESTAMPDIFF(MINUTE')) {
+        return [[{
+          id_atendimento: 5,
+          id_conversa: 4,
+          id_contato: 3,
+          nome: 'Cliente',
+          telefone: '+5511999999999',
+          ultima_mensagem_em: '2026-03-01 10:00:00',
+          minutos_sem_resposta: 31,
+        }], []];
+      }
       return [[]];
     },
   );
@@ -194,5 +209,76 @@ test('administrator can apply a validated report filter and unauthenticated call
   assert.equal(dashboard.status, 200);
   assert.deepEqual(calls[1].values, [45]);
   assert.deepEqual(calls[2].values, [45]);
-  assert.equal((await request('/api/dashboard/atendimentos', false)).status, 401);
-}
+  const alerts = await request('/api/alertas/atendimentos?minutos=30');
+  assert.equal(alerts.status, 200);
+  assert.deepEqual(calls[3].values, [30]);
+  assert.deepEqual((await alerts.json() as { data: { id_atendimento: number }[] }).data, [{
+    id_atendimento: 5,
+    id_conversa: 4,
+    contato: { id: 3, nome: 'Cliente', telefone: '+5511999999999' },
+    ultimaMensagemEm: '2026-03-01 10:00:00',
+    minutosSemResposta: 31,
+  }]);
+});
+
+test('report SLA compares first response with its deadline and excludes null deadlines', async () => {
+  const calls: SqlCall[] = [];
+  const request = await fixture(
+    { id_usuario: 1, perfil: 'admin' },
+    async (sql, values) => {
+      calls.push({ sql, values });
+      return [[{
+        id: 7,
+        nome: 'Atendente',
+        atendimentos_realizados: 2,
+        pendentes: 0,
+        tempo_medio_resposta_segundos: 100,
+        tempo_medio_atendimento_segundos: 300,
+        taxa_conclusao_percentual: 100,
+        sla_percentual: calls.length === 1 ? '50.00' : 0,
+      }], []];
+    },
+  );
+  const response = await request(
+    '/api/relatorios/atendimentos?dataInicial=2026-03-01&dataFinal=2026-03-31',
+  );
+  assert.equal(response.status, 200);
+  const rows = (await response.json() as {
+    data: { slaPercentual: number }[];
+  }).data;
+  assert.deepEqual(rows.map((row) => row.slaPercentual), [50]);
+
+  const slaQuery = calls[0].sql;
+  assert.match(slaQuery, /respostas\.primeira_resposta_atendente <= a\.prazo_retorno/);
+  assert.match(slaQuery, /a\.prazo_retorno IS NOT NULL\s+AND respostas\.primeira_resposta_atendente IS NOT NULL/);
+  assert.match(slaQuery, /a\.prazo_retorno IS NOT NULL\s+AND \(respostas\.primeira_resposta_atendente IS NOT NULL/);
+  assert.match(slaQuery, /OR a\.prazo_retorno <= UTC_TIMESTAMP\(\)/);
+  assert.match(slaQuery, /COALESCE\(ROUND\([\s\S]*?AS sla_percentual/);
+
+  const noDeadlineResponse = await request(
+    '/api/relatorios/atendimentos?dataInicial=2026-04-01&dataFinal=2026-04-30',
+  );
+  assert.equal(noDeadlineResponse.status, 200);
+  assert.deepEqual(
+    (await noDeadlineResponse.json() as { data: { slaPercentual: number }[] })
+      .data.map((row) => row.slaPercentual),
+    [0],
+  );
+});
+
+test('analytics endpoints reject missing and invalid tokens with 401', async () => {
+  const request = await fixture(
+    { id_usuario: 1, perfil: 'admin' },
+    async () => { throw new Error('Analytics data must not be queried without valid authentication.'); },
+  );
+  const paths = [
+    '/api/relatorios/atendimentos?dataInicial=2026-03-01&dataFinal=2026-03-31',
+    '/api/dashboard/atendimentos',
+    '/api/alertas/atendimentos',
+  ];
+
+  for (const path of paths) {
+    assert.equal((await request(path, 'missing')).status, 401);
+    assert.equal((await request(path, 'invalid')).status, 401);
+  }
+});
