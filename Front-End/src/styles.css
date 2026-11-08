@@ -654,13 +654,15 @@ select {
 .conversation-layout {
   display: grid;
   grid-template-columns: 300px minmax(420px, 1fr) 270px;
-  height: calc(100vh - 114px);
+  height: calc(100vh - 150px);
   margin: -10px 0 0;
   border: 1px solid var(--line);
   border-radius: 17px;
   overflow: hidden;
   background: var(--white);
   box-shadow: var(--shadow);
+  grid-template-rows: minmax(0, 1fr);
+  height: calc(100dvh - 150px);
 }
 .conversation-list {
   border-right: 1px solid var(--line);
@@ -1668,10 +1670,9 @@ th {
   flex: 1;
   height: 42px;
   padding: 0 14px;
-
+  position: relative;
   border: 1px solid var(--line);
   border-radius: 10px;
-
   font-size: 18px;
   outline: none;
 }
