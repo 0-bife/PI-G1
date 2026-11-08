@@ -20,11 +20,12 @@
 body {
   margin: 0;
   font-family: Inter, Arial, sans-serif;
+   font-size: 20px;
   color: var(--ink);
   background: var(--bg);
 }
 button,
-input,
+input,S
 textarea,
 select {
   font: inherit;
@@ -140,6 +141,10 @@ select {
   gap: 11px;
   padding: 0 8px;
 }
+.logo > div {
+  display: flex;
+  flex-direction: column;
+}
 .logo-mark {
   width: 38px;
   height: 38px;
@@ -148,23 +153,21 @@ select {
   display: grid;
   place-items: center;
   font-weight: 800;
-  font-size: 18px;
+  font-size: 20px;
 }
 .logo img {
-  width: 90px;
-  height: 90px;
+  width: 110px; /* era 90px */
+  height: 110px; /* era 90px */
   object-fit: contain;
   flex-shrink: 0;
 }
-.logo strong,
-.logo small {
-  display: block;
-}
+
 .logo strong {
-  font-size: 17px;
+  font-size: 24px; /* era 20px */
 }
+
 .logo small {
-  font-size: 9px;
+  font-size: 11px; /* era 9px */
   color: var(--muted);
   margin-top: 2px;
   letter-spacing: 0.5px;
@@ -328,7 +331,7 @@ select {
   z-index: 4;
 }
 .topbar h1 {
-  font-size: 18px;
+  font-size: 20px;
   margin: 0;
 }
 .topbar-heading {
@@ -396,7 +399,7 @@ select {
 .page-heading p {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 18px;;
 }
 .primary {
   border: 0;
@@ -860,7 +863,7 @@ select {
   padding: 10px 14px;
   margin-bottom: 10px;
   border-radius: 14px;
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1.4;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04)
 }
@@ -929,7 +932,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 11px 14px;
-  font-size: 13px;
+  font-size: 15px;
 }
 .send-btn {
   border: 0;
@@ -954,7 +957,7 @@ select {
   margin: auto;
 }
 .customer-top h3 {
-  font-size: 13px;
+  font-size: 15px;
   margin: 10px 0 4px;
 }
 .customer-top p {
@@ -1083,7 +1086,7 @@ th {
   margin: 0;
 }
 .campaign-row h3 {
-  font-size: 12px;
+  font-size: 14px;;
 }
 .campaign-row p {
   font-size: 9px;
@@ -1111,7 +1114,7 @@ th {
   gap: 30px;
 }
 .creation-preview h3 {
-  font-size: 18px;
+  font-size: 20px;
   margin: 6px 0;
 }
 .creation-preview p {
@@ -1316,14 +1319,14 @@ th {
   color: #7087bd;
 }
 .login-copy > p {
-  font-size: 11px;
+  font-size: 15px;
   color: var(--muted);
   line-height: 1.6;
   margin-bottom: 26px;
 }
 .login-copy > label {
   display: block;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 700;
   margin-top: 12px;
 }
@@ -1338,6 +1341,7 @@ th {
 }
 .login-copy > label > input {
   padding: 0 12px;
+  font-size: 15px;
 }
 .password {
   display: flex;
@@ -1349,21 +1353,23 @@ th {
   background: transparent;
   flex: 1;
   padding: 0 12px;
+  font-size: 15px;
 }
 .login-links {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin: 13px 0;
-  font-size: 9px;
+  font-size: 14px;
   color: var(--muted);
 }
+
 .login-links button,
 .signup button {
   border: 0;
   background: transparent;
   color: #5f73a3;
-  font-size: 9px;
+  font-size: 14px;
   font-weight: 700;
 }
 .login-button {
@@ -1468,7 +1474,7 @@ th {
   display: block;
 }
 .visual-card b {
-  font-size: 12px;
+  font-size: 14px;
 }
 .visual-card span {
   font-size: 7px;
@@ -1666,7 +1672,7 @@ th {
   border: 1px solid var(--line);
   border-radius: 10px;
 
-  font-size: 14px;
+  font-size: 18px;
   outline: none;
 }
 
@@ -1695,7 +1701,7 @@ th {
   border-radius: 12px;
 
   resize: none;
-  font-size: 13px;
+  font-size: 15px;
   color: #222;
 }
 
