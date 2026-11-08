@@ -1702,3 +1702,141 @@ th {
 .customer-section textarea::placeholder {
   color: #7a87a1;
 }
+.api-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #e4b7ae;
+  border-radius: 9px;
+  background: #fff0ed;
+  color: #8c3428;
+  font-size: 12px;
+}
+.login-copy > .api-error {
+  margin: 10px 0;
+}
+.new-conversation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 14px 12px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: #e4e8f2;
+  color: #52648d;
+  font-size: 11px;
+  font-weight: 700;
+}
+.new-conversation-form {
+  display: flex;
+  gap: 5px;
+  padding: 0 14px 12px;
+}
+.new-conversation-form input,
+.new-conversation-form button {
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 9px;
+}
+.new-conversation-form input {
+  flex: 1;
+}
+.new-conversation-form button {
+  background: var(--accent);
+}
+.conversation-items {
+  height: calc(100% - 102px);
+  overflow-y: auto;
+}
+.empty-state,
+.empty-chat {
+  padding: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.empty-chat {
+  display: grid;
+  place-items: center;
+}
+.message small {
+  display: block;
+  margin-top: 5px;
+  color: #555;
+  font-size: 9px;
+}
+.label-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+.label-select select {
+  min-width: 0;
+  flex: 1;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: white;
+  font-size: 10px;
+}
+.note-button {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 10px;
+}
+.annotation-list article {
+  margin-top: 10px;
+  padding: 9px;
+  border-radius: 8px;
+  background: var(--soft);
+}
+.annotation-list p {
+  margin: 0 0 5px;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.annotation-list small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.contact-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 16px;
+}
+.contact-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.contact-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.contact-form .form-title {
+  display: none;
+}
+@media (max-width: 900px) {
+  .contact-form {
+    grid-template-columns: 1fr;
+  }
+  .contact-form .form-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    grid-column: 1;
+  }
+  .contact-form .form-title h3 {
+    margin: 0;
+  }
+}

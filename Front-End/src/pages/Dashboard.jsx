@@ -1,113 +1,61 @@
-import { MessageCircle, CheckCircle2, Users, Clock, Plus } from "lucide-react";
-import MetricCard from "../components/MetricCard.jsx";
-import { conversations } from "../data/mockData.js";
-// Dashboard: visão geral da operação e indicadores principais.
-export default function Dashboard() {
-  const bars = [38, 58, 46, 75, 62, 88, 70];
+import { useEffect, useState } from 'react';
+import { MessageCircle } from 'lucide-react';
+import { getConversations } from '../api.ts';
+
+function formatDate(value) {
+  if (!value) return 'Sem mensagens';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
+}
+
+export default function Dashboard({ onOpenConversations }) {
+  const [conversations, setConversations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getConversations()
+      .then((result) => active && setConversations(result.data))
+      .catch((requestError) => active && setError(requestError.message))
+      .finally(() => active && setLoading(false));
+    return () => { active = false; };
+  }, []);
+
   return (
     <>
       <div className="welcome">
         <div>
           <span className="eyebrow">VISÃO GERAL</span>
-          <h2>Boa tarde, Isabela 👋</h2>
-          <p>Acompanhe o desempenho do seu atendimento hoje.</p>
+          <h2>Atendimento em um só lugar</h2>
+          <p>Consulte as conversas carregadas da sua conta.</p>
         </div>
-        <button className="primary">
-          <Plus size={18} /> Novo atendimento
+        <button className="primary" onClick={onOpenConversations}>
+          <MessageCircle size={18} /> Abrir conversas
         </button>
       </div>
-      <div className="metrics">
-        <MetricCard
-          title="Mensagens recebidas"
-          value="1.284"
-          detail="+12,5% desde ontem"
-          Icon={MessageCircle}
-        />
-        <MetricCard
-          title="Mensagens respondidas"
-          value="1.109"
-          detail="86,3% respondidas"
-          Icon={CheckCircle2}
-        />
-        <MetricCard
-          title="Clientes ativos"
-          value="347"
-          detail="+28 esta semana"
-          Icon={Users}
-        />
-        <MetricCard
-          title="Tempo médio"
-          value="3m 42s"
-          detail="-18s desde ontem"
-          Icon={Clock}
-        />
-      </div>
-      <div className="dashboard-grid">
-        <article className="card chart-card">
-          <div className="card-head">
-            <div>
-              <h3>Atendimentos por dia</h3>
-              <p>Últimos 7 dias</p>
-            </div>
-            <button className="soft-btn">Esta semana</button>
+      {error && <p className="api-error" role="alert">{error}</p>}
+      <article className="card">
+        <div className="card-head">
+          <div>
+            <h3>Conversas recentes</h3>
+            <p>{loading ? 'Carregando...' : `${conversations.length} conversa(s) nesta página`}</p>
           </div>
-          <div className="bar-chart">
-            {bars.map((h, i) => (
-              <div className="bar-col" key={i}>
-                <span style={{ height: `${h}%` }} />
-                <small>
-                  {["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"][i]}
-                </small>
-              </div>
-            ))}
+        </div>
+        {loading && <p className="empty-state">Carregando conversas...</p>}
+        {!loading && !error && conversations.length === 0 && <p className="empty-state">Ainda não há conversas.</p>}
+        {conversations.map((conversation) => (
+          <div className="recent-row" key={conversation.id_conversa}>
+            <div className="avatar pale">{(conversation.nome || conversation.telefone).charAt(0)}</div>
+            <div className="grow">
+              <strong>{conversation.nome || conversation.telefone}</strong>
+              <small>{conversation.telefone}</small>
+            </div>
+            <span className="tag">{conversation.atendimento_aberto?.status || 'Sem atendimento'}</span>
+            <small>{formatDate(conversation.ultima_mensagem_em)}</small>
           </div>
-        </article>
-      </div>
-      <div className="dashboard-grid lower">
-        <article className="card">
-          <div className="card-head">
-            <div>
-              <h3>Conversas recentes</h3>
-              <p>Últimos atendimentos</p>
-            </div>
-            <button className="link-btn">Ver todas</button>
-          </div>
-          {conversations.slice(0, 3).map((c) => (
-            <div className="recent-row" key={c.id}>
-              <div className="avatar pale">{c.initials}</div>
-              <div className="grow">
-                <strong>{c.name}</strong>
-                <small>{c.preview}</small>
-              </div>
-              <span className="tag">{c.status}</span>
-              <small>{c.time}</small>
-            </div>
-          ))}
-        </article>
-        <article className="card activity">
-          <div className="card-head">
-            <div>
-              <h3>Atividades recentes</h3>
-              <p>Atualizações da operação</p>
-            </div>
-          </div>
-          {[
-            "Ana finalizou 18 atendimentos",
-            "Automação “Boas-vindas” atualizada",
-            "32 novos contatos importados",
-          ].map((x, i) => (
-            <div className="activity-row" key={x}>
-              <i className={`dot d${i}`} />
-              <div>
-                <strong>{x}</strong>
-                <small>
-                  há {i + 1} hora{i ? "s" : ""}
-                </small>
-              </div>
-            </div>
-          ))}
-        </article>
-      </div>
+        ))}
+      </article>
     </>
   );
 }

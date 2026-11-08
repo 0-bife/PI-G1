@@ -28,7 +28,7 @@ const navItems = [
 ];
 
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
-export default function AppShell({ page, setPage, children }) {
+export default function AppShell({ page, setPage, user, onLogout, children }) {
   const [isPinned, setIsPinned] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -114,8 +114,8 @@ export default function AppShell({ page, setPage, children }) {
           <div className="mini-profile">
             <div className="avatar">IB</div>
             <div className="profile-label">
-              <strong>Isabela</strong>
-              <small>Administradora</small>
+              <strong>{user?.nome ?? "Usuário"}</strong>
+              <small>{user?.perfil === "admin" ? "Administradora" : "Atendente"}</small>
             </div>
             <MoreHorizontal size={18} />
           </div>
@@ -125,7 +125,7 @@ export default function AppShell({ page, setPage, children }) {
             data-tooltip="Sair"
             aria-label="Sair"
             title="Sair"
-            onClick={() => handleNavigation("Login")}
+            onClick={onLogout}
           >
             <LogOut size={18} /> <span>Sair</span>
           </button>
@@ -164,7 +164,7 @@ export default function AppShell({ page, setPage, children }) {
               <Bell size={19} />
               <i />
             </button>
-            <div className="avatar">IB</div>
+            <div className="avatar">{user?.nome?.charAt(0) ?? 'IB'}</div>
           </div>
         </header>
         <section className="page-content">{children}</section>

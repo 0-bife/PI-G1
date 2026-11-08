@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import AppShell from './components/AppShell.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -6,19 +6,60 @@ import Conversas from './pages/Conversas.jsx';
 import Contatos from './pages/Contatos.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
+import { checkMe, logout } from './api.ts';
 
-// App controla qual tela está aberta no protótipo navegável.
 export default function App() {
-  const [page, setPage] = useState('Login');
-  if (page === 'Login') return <Login onEnter={() => setPage('Dashboard')} />;
+  const [page, setPage] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+      setAuthError('');
+      setPage('Login');
+    };
+    window.addEventListener('inablink:unauthorized', handleUnauthorized);
+    if (sessionStorage.getItem('inablink.accessToken')) {
+      checkMe()
+        .then((currentUser) => {
+          setUser(currentUser);
+          setPage('Dashboard');
+        })
+        .catch(() => setPage('Login'));
+    } else {
+      setPage('Login');
+    }
+    return () => window.removeEventListener('inablink:unauthorized', handleUnauthorized);
+  }, []);
+
+  const handleLogin = (authenticatedUser) => {
+    setAuthError('');
+    setUser(authenticatedUser);
+    setPage('Dashboard');
+  };
+
+  if (!page) return null;
+  if (page === 'Login') return <Login onLogin={handleLogin} initialError={authError} />;
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setUser(null);
+      setPage('Login');
+    }
+  }
 
   const screens = {
-    Dashboard: <Dashboard />,
+    Dashboard: <Dashboard onOpenConversations={() => setPage('Conversas')} />,
     Conversas: <Conversas />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
     Configurações: <Configuracoes />,
   };
 
-  return <AppShell page={page} setPage={setPage}>{screens[page]}</AppShell>;
+  return <AppShell page={page} setPage={setPage} user={user} onLogout={handleLogout}>{screens[page]}</AppShell>;
 }
