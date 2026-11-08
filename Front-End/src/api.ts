@@ -19,6 +19,18 @@ export interface Conversation {
   atendimento_aberto?: { status: string | null } | null;
 }
 
+export interface AttendanceAlert {
+  id_atendimento: number;
+  id_conversa: number;
+  contato: {
+    id: number;
+    nome: string | null;
+    telefone: string;
+  };
+  ultimaMensagemEm: string | null;
+  minutosSemResposta: number;
+}
+
 export interface Message {
   id_mensagem: number;
   data_hora: string;
@@ -160,6 +172,10 @@ export async function checkMe(): Promise<User> {
 
 export function getConversations(page = 1, limit = 20): Promise<Page<Conversation>> {
   return request<Page<Conversation>>(`/api/conversas?${queryPage(page, limit)}`);
+}
+
+export function getAttendanceAlerts(minutes = 30): Promise<{ data: AttendanceAlert[] }> {
+  return request<{ data: AttendanceAlert[] }>(`/api/alertas/atendimentos?minutos=${minutes}`);
 }
 
 export function createConversation(telefone: string): Promise<{ data: Conversation }> {

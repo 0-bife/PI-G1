@@ -15,6 +15,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import Logo from "./Logo.jsx";
+import AttendanceAlert from "./AttendanceAlert.jsx";
 
 const SIDEBAR_STORAGE_KEY = "in-a-blink-sidebar-pinned";
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
@@ -28,7 +29,7 @@ const navItems = [
 ];
 
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
-export default function AppShell({ page, setPage, user, onLogout, children }) {
+export default function AppShell({ page, setPage, user, onLogout, onOpenConversations, children }) {
   const [isPinned, setIsPinned] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -169,6 +170,7 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
         </header>
         <section className="page-content">{children}</section>
       </main>
+      <AttendanceAlert onOpenConversations={onOpenConversations} />
     </div>
   );
 }

@@ -1,6 +1,10 @@
 import { useState } from 'react';
-import { UserRound, Users, Plug, Bot, Tags, Shield, ChevronRight } from 'lucide-react';
+import { UserRound, Users, Plug, Bot, Tags, Shield, BellRing, ChevronRight } from 'lucide-react';
 import PageHeading from '../components/PageHeading.jsx';
+import {
+	getAttendanceAlertMinutes,
+	saveAttendanceAlertMinutes,
+} from '../attendanceAlertConfig.js';
 
 // Configurações: navegação por seções e formulário de preferências.
 export default function Configuracoes() {
@@ -11,9 +15,19 @@ export default function Configuracoes() {
 		['Mensagens automáticas', Bot],
 		['Etiquetas', Tags],
 		['Segurança', Shield],
+		['Alertas de atendimento', BellRing],
 	];
 
 	const [tab, setTab] = useState('Perfil');
+	const [alertMinutes, setAlertMinutes] = useState(() => getAttendanceAlertMinutes());
+
+	function handleSave() {
+		if (tab !== 'Alertas de atendimento') return;
+		const minutes = Number(alertMinutes);
+		if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) return;
+		saveAttendanceAlertMinutes(minutes);
+		window.dispatchEvent(new Event('inablink:attendance-alert-config-changed'));
+	}
 
 	return (
 		<>
@@ -42,7 +56,24 @@ export default function Configuracoes() {
 					<h3>{tab}</h3>
 					<p>Gerencie as preferências de {tab.toLowerCase()} da sua empresa.</p>
 
-					<div className="form-grid settings-fields">
+					{tab === 'Alertas de atendimento' ? (
+						<div className="form-grid settings-fields">
+							<label>
+								Tempo sem resposta (minutos)
+								<input
+									type="number"
+									min="1"
+									max="10080"
+									value={alertMinutes}
+									onChange={(event) => setAlertMinutes(event.target.value)}
+								/>
+								<small className="field-help">
+									Alertar para atendimentos abertos sem resposta após esse período.
+								</small>
+							</label>
+						</div>
+					) : (
+						<div className="form-grid settings-fields">
 						<label>
 							Nome da empresa
 							<input defaultValue="in a blink Demo" />
@@ -76,9 +107,12 @@ export default function Configuracoes() {
 								<i />
 							</span>
 						</label>
-					</div>
+						</div>
+					)}
 
-					<button className="primary">Salvar alterações</button>
+					<button className="primary" type="button" onClick={handleSave}>
+						Salvar alterações
+					</button>
 				</article>
 			</div>
 		</>
