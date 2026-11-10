@@ -54,9 +54,13 @@ Operações disponíveis:
 
 - `login(email, senha)` e `logout()`; `checkMe()` valida a sessão no carregamento.
 - `getConversations(page, limit)` e `createConversation(telefone)`.
-- `getConversationMessages(id, page, limit)` e `sendMessage(id, conteudo)`.
+- `getConversationMessages(id, page, limit)`, `markConversationRead(id)` e `sendMessage(id, conteudo)`.
 - `getConversationAnnotations(id, page, limit)` e `createAnnotation(id, texto)`.
 - `getContacts(page, limit)` e `createContact({ telefone, nome, email })`.
 - `getLabels()`, `getConversationLabels(id)` e `addConversationLabel(id, etiquetaId)`.
 
 Todas as funções rejeitam com `ApiError` em falhas HTTP; o `message` contém a mensagem apropriada para exibição na interface e `status` mantém o status HTTP original.
+
+Na tela de conversas, a busca do cabeçalho filtra em tempo real por nome ou telefone. O filtro
+“Não lidas” usa o contador `unread_count` retornado pela API e cada usuário marca a conversa como
+lida ao abri-la.

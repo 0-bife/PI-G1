@@ -28,7 +28,15 @@ const navItems = [
 ];
 
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
-export default function AppShell({ page, setPage, user, onLogout, children }) {
+export default function AppShell({
+  page,
+  setPage,
+  user,
+  onLogout,
+  searchTerm,
+  onSearchTermChange,
+  children,
+}) {
   const [isPinned, setIsPinned] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -156,10 +164,23 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
               <p>Gerencie sua operação de atendimento.</p>
             </div>
           </div>
-          <div className="top-actions">
-            <button className="icon-btn">
-              <Search size={19} />
-            </button>
+          <div className={`top-actions ${page === "Conversas" ? "conversation-top-actions" : ""}`}>
+            {page === "Conversas" ? (
+              <label className="top-search">
+                <Search size={18} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Buscar conversas por nome ou telefone"
+                  placeholder="Buscar conversas..."
+                  value={searchTerm}
+                  onChange={(event) => onSearchTermChange(event.target.value)}
+                />
+              </label>
+            ) : (
+              <button className="icon-btn" type="button" aria-label="Pesquisar">
+                <Search size={19} aria-hidden="true" />
+              </button>
+            )}
             <button className="icon-btn notification">
               <Bell size={19} />
               <i />

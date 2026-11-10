@@ -16,6 +16,9 @@ export interface Conversation {
   email?: string | null;
   criada_em: string;
   ultima_mensagem_em: string | null;
+  unread_count?: number;
+  unreadCount?: number;
+  unread?: boolean;
   atendimento_aberto?: { status: string | null } | null;
 }
 
@@ -168,6 +171,10 @@ export function createConversation(telefone: string): Promise<{ data: Conversati
 
 export function getConversationMessages(id: number, page = 1, limit = 20): Promise<Page<Message>> {
   return request<Page<Message>>(`/api/conversas/${id}/mensagens?${queryPage(page, limit)}`);
+}
+
+export function markConversationRead(id: number): Promise<void> {
+  return request<void>(`/api/conversas/${id}/leitura`, { method: 'POST' });
 }
 
 export function sendMessage(id: number, conteudo: string): Promise<{ data: Message }> {

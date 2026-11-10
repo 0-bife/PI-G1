@@ -18,6 +18,7 @@ import {
   getConversationMessages,
   getConversations,
   getLabels,
+  markConversationRead,
   sendMessage,
 } from '../api.ts';
 
@@ -27,14 +28,32 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
 }
 
-export default function Conversations() {
+function unreadCount(conversation) {
+  const count = Number(conversation.unread_count ?? conversation.unreadCount ?? 0);
+  if (Number.isFinite(count) && count > 0) return count;
+  return conversation.unread === true ? 1 : 0;
+}
+
+function isUnread(conversation) {
+  return unreadCount(conversation) > 0;
+}
+
+function normalizeSearch(value) {
+  return value
+    .trim()
+    .toLocaleLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export default function Conversations({ searchTerm, onSearchTermChange }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
   const [conversationLabels, setConversationLabels] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [annotationText, setAnnotationText] = useState('');
   const [phone, setPhone] = useState('');
@@ -95,19 +114,35 @@ export default function Conversations() {
         if (active) setError(requestError.message);
       });
 
+    markConversationRead(selectedId)
+      .then(() => {
+        if (!active) return;
+        setConversations((current) => current.map((conversation) => (
+          conversation.id_conversa === selectedId
+            ? { ...conversation, unread_count: 0, unreadCount: 0, unread: false }
+            : conversation
+        )));
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.message);
+      });
+
     return () => {
       active = false;
     };
   }, [selectedId]);
 
   const filteredConversations = useMemo(() => {
-    const query = searchTerm.trim().toLocaleLowerCase();
-    return conversations.filter((conversation) =>
-      `${conversation.nome ?? ''} ${conversation.telefone}`
-        .toLocaleLowerCase()
-        .includes(query),
-    );
-  }, [conversations, searchTerm]);
+    const normalizedQuery = normalizeSearch(searchTerm);
+    const unreadQuery = /^(nao lidas?|unread)$/.test(normalizedQuery);
+    const query = unreadQuery ? '' : normalizedQuery;
+    return conversations.filter((conversation) => {
+      const matchesText = !query || normalizeSearch(
+        `${conversation.nome ?? ''} ${conversation.telefone}`,
+      ).includes(query);
+      return matchesText && (!(unreadOnly || unreadQuery) || isUnread(conversation));
+    });
+  }, [conversations, searchTerm, unreadOnly]);
 
   async function handleSendMessage(event) {
     event.preventDefault();
@@ -191,13 +226,25 @@ export default function Conversations() {
       <div className="conversation-layout">
         <section className="conversation-list">
           <div className="search-box">
-            <Search size={17} />
+            <Search size={17} aria-hidden="true" />
             <input
               type="text"
               placeholder="Buscar conversa..."
               value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
+              aria-label="Buscar conversas por nome ou telefone"
+              onChange={(event) => onSearchTermChange(event.target.value)}
             />
+          </div>
+          <div className="filter-row">
+            <button
+              className={`filter ${unreadOnly ? 'active' : ''}`}
+              type="button"
+              aria-pressed={unreadOnly}
+              onClick={() => setUnreadOnly((current) => !current)}
+            >
+              Não lidas
+              <b>{conversations.filter(isUnread).length}</b>
+            </button>
           </div>
           <button
             className="new-conversation"
@@ -242,6 +289,16 @@ export default function Conversations() {
                   </div>
                   <p>{conversation.telefone}</p>
                 </div>
+                {isUnread(conversation) && (
+                  <span
+                    className="conversation-unread-badge"
+                    aria-label={`${unreadCount(conversation)} mensagens não lidas`}
+                  >
+                    {unreadCount(conversation) > 99
+                      ? '99+'
+                      : unreadCount(conversation)}
+                  </span>
+                )}
               </button>
             ))}
           </div>

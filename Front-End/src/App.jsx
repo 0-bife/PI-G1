@@ -12,6 +12,7 @@ export default function App() {
   const [page, setPage] = useState(null);
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState('');
+  const [conversationSearch, setConversationSearch] = useState('');
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -55,11 +56,27 @@ export default function App() {
 
   const screens = {
     Dashboard: <Dashboard onOpenConversations={() => setPage('Conversas')} />,
-    Conversas: <Conversas />,
+    Conversas: (
+      <Conversas
+        searchTerm={conversationSearch}
+        onSearchTermChange={setConversationSearch}
+      />
+    ),
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
     Configurações: <Configuracoes />,
   };
 
-  return <AppShell page={page} setPage={setPage} user={user} onLogout={handleLogout}>{screens[page]}</AppShell>;
+  return (
+    <AppShell
+      page={page}
+      setPage={setPage}
+      user={user}
+      onLogout={handleLogout}
+      searchTerm={conversationSearch}
+      onSearchTermChange={setConversationSearch}
+    >
+      {screens[page]}
+    </AppShell>
+  );
 }

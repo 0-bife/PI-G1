@@ -282,7 +282,10 @@ test('conversation list returns latest message, open attendance and active respo
   const phone = '+15551234567';
   const request = await fixture(async (sql, values) => {
     if (sql.includes('FROM CONVERSA v')) {
-      assert.deepEqual(values, [phone]);
+      assert.deepEqual(values, [1, phone]);
+      assert.match(sql, /FROM MENSAGEM nao_lida/);
+      assert.match(sql, /nao_lida\.origem = 'contato'/);
+      assert.match(sql, /id_mensagem_lida/);
       assert.match(sql, /LIMIT 10 OFFSET 10$/);
       return [[{
         id_conversa: 12,
@@ -296,6 +299,7 @@ test('conversation list returns latest message, open attendance and active respo
         iniciado_em: '2026-01-02 10:00:00',
         prazo_retorno: null,
         ultima_mensagem_em: '2026-01-02 11:00:00',
+        unread_count: 2,
       }], []];
     }
     if (sql.includes('FROM ATRIBUICAO a')) {
@@ -318,6 +322,7 @@ test('conversation list returns latest message, open attendance and active respo
   const result = await response.json() as { data: Array<Record<string, unknown>>; page: number; limit: number };
   assert.equal(result.page, 2);
   assert.equal(result.data[0].ultima_mensagem_em, '2026-01-02 11:00:00');
+  assert.equal(result.data[0].unread_count, 2);
   assert.deepEqual(result.data[0].atendimento_aberto, {
     id_atendimento: 23,
     status: 'open',
@@ -325,6 +330,23 @@ test('conversation list returns latest message, open attendance and active respo
     prazo_retorno: null,
   });
   assert.equal((result.data[0].responsaveis_ativos as unknown[]).length, 1);
+});
+
+test('marking a conversation as read stores the authenticated user watermark', async () => {
+  const request = await fixture(async (sql, values) => {
+    if (sql.startsWith('SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? LIMIT 1')) {
+      assert.deepEqual(values, [12]);
+      return [[{ id_conversa: 12 }], []];
+    }
+    if (sql.startsWith('INSERT INTO CONVERSA_LEITURA')) {
+      assert.deepEqual(values, [12, 1, 12]);
+      return [{ affectedRows: 1 }, []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const response = await request('/api/conversas/12/leitura', json({}));
+  assert.equal(response.status, 204);
 });
 
 test('conversation creation reuses the unique contact and conversation', async () => {
