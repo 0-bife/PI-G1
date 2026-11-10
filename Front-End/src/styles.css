@@ -73,21 +73,22 @@ select {
   gap: 3px;
 }
 .sidebar .logo {
-  gap: 11px;
+  gap: 8px;
   padding: 0;
   min-width: 0;
 }
-.sidebar .logo img {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+.sidebar .logo-image {
+  width: 3.75rem;
+  height: auto;
+  max-width: 100%;
+  flex: 0 0 3.75rem;
 }
 .sidebar-collapsed .sidebar .logo {
   flex: 0 0 28px;
 }
-.sidebar-collapsed .sidebar .logo img {
+.sidebar-collapsed .sidebar .logo-image {
   width: 28px;
-  height: 28px;
+  height: auto;
   flex-basis: 28px;
 }
 .sidebar .logo > div,
@@ -155,15 +156,16 @@ select {
   font-weight: 800;
   font-size: 20px;
 }
-.logo img {
-  width: 110px; /* era 90px */
-  height: 110px; /* era 90px */
+.logo-image {
+  width: clamp(4.5rem, 5vw, 5rem);
+  max-width: 100%;
+  height: auto;
   object-fit: contain;
   flex-shrink: 0;
 }
 
 .logo strong {
-  font-size: 24px; /* era 20px */
+  font-size: 24px;
 }
 
 .logo small {
@@ -171,6 +173,12 @@ select {
   color: var(--muted);
   margin-top: 2px;
   letter-spacing: 0.5px;
+}
+.sidebar .logo strong {
+  font-size: 18px;
+}
+.sidebar .logo small {
+  font-size: 10px;
 }
 .sidebar nav {
   margin-top: 42px;
@@ -1543,10 +1551,14 @@ th {
   .sidebar-collapsed .sidebar .logo {
     flex: 0 1 auto;
   }
-  .sidebar-collapsed .sidebar .logo img {
-    width: 38px;
-    height: 38px;
-    flex-basis: 38px;
+  .logo-image {
+    width: clamp(3.75rem, 15vw, 4rem);
+  }
+  .sidebar .logo-image,
+  .sidebar-collapsed .sidebar .logo-image {
+    width: 3.75rem;
+    height: auto;
+    flex-basis: 3.75rem;
   }
   .sidebar.drawer-open {
     transform: translateX(0);

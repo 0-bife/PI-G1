@@ -1,4 +1,3 @@
-// Logo reutilizado no login e na barra lateral.
 import logo from "../assets/logo inb.png";
 
 // Logo reutilizado no login e na barra lateral.
