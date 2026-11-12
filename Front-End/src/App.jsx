@@ -182,6 +182,10 @@ export default function App() {
     setPreferences(nextPreferences);
   }
 
+  function updateProfilePreview(profile) {
+    setPreferences((current) => ({ ...current, profile }));
+  }
+
   function resetPreferences() {
     const defaults = createDefaultPreferences();
     savePreferences(defaults);
@@ -220,6 +224,7 @@ export default function App() {
         preferences={preferences}
         onSave={savePreferences}
         onReset={resetPreferences}
+        onProfileChange={updateProfilePreview}
       />
     ),
   };

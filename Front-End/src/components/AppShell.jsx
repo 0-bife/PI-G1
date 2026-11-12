@@ -27,24 +27,6 @@ const navItems = [
   ["Configurações", Settings],
 ];
 
-function ProfileAvatar({ name, image }) {
-  const initials = name?.trim().charAt(0).toLocaleUpperCase("pt-BR") || "U";
-  return (
-    <div
-      className="avatar"
-      style={image ? {
-        backgroundImage: `url("${image}")`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      } : undefined}
-      role="img"
-      aria-label={image ? `Foto de ${name}` : `Iniciais do perfil: ${initials}`}
-    >
-      {!image && initials}
-    </div>
-  );
-}
-
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
 export default function AppShell({
   page,
@@ -73,6 +55,10 @@ export default function AppShell({
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const isExpanded = isPinned || isHovered;
   const displayName = profileName?.trim() || user?.nome || "Usuário";
+  const nameParts = displayName.trim().split(/\s+/).filter(Boolean);
+  const profileInitials = nameParts.length > 1
+    ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toLocaleUpperCase("pt-BR")
+    : (nameParts[0]?.[0] ?? "U").toLocaleUpperCase("pt-BR");
 
   useEffect(() => {
     try {
@@ -153,7 +139,18 @@ export default function AppShell({
         </nav>
         <div className="sidebar-bottom">
           <div className="mini-profile">
-            <ProfileAvatar name={displayName} image={profileAvatar} />
+            <div
+              className="avatar"
+              style={profileAvatar ? {
+                backgroundImage: `url("${profileAvatar}")`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              } : undefined}
+              role="img"
+              aria-label={profileAvatar ? `Foto de ${displayName}` : `Iniciais do perfil: ${profileInitials}`}
+            >
+              {!profileAvatar && profileInitials}
+            </div>
             <div className="profile-label">
               <strong>{displayName}</strong>
               <small>{user?.perfil === "admin" ? "Administradora" : "Atendente"}</small>
@@ -235,7 +232,18 @@ export default function AppShell({
                 </span>
               )}
             </button>
-            <ProfileAvatar name={displayName} image={profileAvatar} />
+            <div
+              className="avatar"
+              style={profileAvatar ? {
+                backgroundImage: `url("${profileAvatar}")`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              } : undefined}
+              role="img"
+              aria-label={profileAvatar ? `Foto de ${displayName}` : `Iniciais do perfil: ${profileInitials}`}
+            >
+              {!profileAvatar && profileInitials}
+            </div>
           </div>
         </header>
         <section className="page-content">{children}</section>

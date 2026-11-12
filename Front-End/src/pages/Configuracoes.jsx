@@ -72,16 +72,18 @@ function Toggle({ id, title, description, checked, onChange }) {
 	);
 }
 
-export default function Configuracoes({ user, preferences, onSave, onReset }) {
+export default function Configuracoes({ user, preferences, onSave, onReset, onProfileChange }) {
 	const [tab, setTab] = useState('Perfil e conta');
 	const [draft, setDraft] = useState(preferences);
 	const [feedback, setFeedback] = useState({ message: '', isError: false });
 
 	function update(group, key, value) {
-		setDraft((current) => ({
-			...current,
-			[group]: { ...current[group], [key]: value },
-		}));
+		const nextDraft = {
+			...draft,
+			[group]: { ...draft[group], [key]: value },
+		};
+		setDraft(nextDraft);
+		if (group === 'profile') onProfileChange?.(nextDraft.profile);
 		setFeedback({ message: '', isError: false });
 	}
 
