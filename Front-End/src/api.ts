@@ -22,6 +22,11 @@ export interface Conversation {
   atendimento_aberto?: { status: string | null } | null;
 }
 
+export interface NotificationSummary {
+  unread_count: number;
+  latest_incoming_message_id: number;
+}
+
 export interface Message {
   id_mensagem: number;
   data_hora: string;
@@ -163,6 +168,10 @@ export async function checkMe(): Promise<User> {
 
 export function getConversations(page = 1, limit = 20): Promise<Page<Conversation>> {
   return request<Page<Conversation>>(`/api/conversas?${queryPage(page, limit)}`);
+}
+
+export function getNotificationSummary(): Promise<NotificationSummary> {
+  return request<NotificationSummary>('/api/notificacoes/resumo');
 }
 
 export function createConversation(telefone: string): Promise<{ data: Conversation }> {

@@ -53,6 +53,9 @@ export default function AppShell({
   profileName,
   profileStatus,
   profileAvatar,
+  notificationCount = 0,
+  notificationError = "",
+  onOpenNotifications,
   onLogout,
   searchTerm,
   onSearchTermChange,
@@ -130,13 +133,21 @@ export default function AppShell({
               className={`nav-item ${page === label ? "active" : ""}`}
               type="button"
               data-tooltip={label}
-              aria-label={label}
-              title={label}
+              aria-label={label === "Conversas" && notificationCount > 0
+                ? `${label}, ${notificationCount} mensagens não lidas`
+                : label}
+              title={label === "Conversas" && notificationCount > 0
+                ? `${label}, ${notificationCount} mensagens não lidas`
+                : label}
               onClick={() => handleNavigation(label)}
             >
               <Icon size={19} />
               <span>{label}</span>
-              {label === "Conversas" && <b className="nav-badge">3</b>}
+              {label === "Conversas" && notificationCount > 0 && (
+                <b className="nav-badge" aria-hidden="true">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </b>
+              )}
             </button>
           ))}
         </nav>
@@ -204,9 +215,25 @@ export default function AppShell({
                 <Search size={19} aria-hidden="true" />
               </button>
             )}
-            <button className="icon-btn notification">
-              <Bell size={19} />
-              <i />
+            <button
+              className="icon-btn notification"
+              type="button"
+              aria-label={notificationCount > 0
+                ? `Notificações, ${notificationCount} mensagens não lidas`
+                : "Notificações"}
+              title={notificationError
+                ? `Não foi possível atualizar: ${notificationError}`
+                : notificationCount > 0
+                  ? `${notificationCount} mensagens não lidas`
+                  : "Notificações"}
+              onClick={onOpenNotifications}
+            >
+              <Bell size={19} aria-hidden="true" />
+              {notificationCount > 0 && (
+                <span className="notification-badge" aria-live="polite" aria-atomic="true">
+                  {notificationCount > 99 ? "99+" : notificationCount}
+                </span>
+              )}
             </button>
             <ProfileAvatar name={displayName} image={profileAvatar} />
           </div>

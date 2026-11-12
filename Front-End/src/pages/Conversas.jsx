@@ -46,7 +46,12 @@ function normalizeSearch(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-export default function Conversations({ searchTerm, onSearchTermChange, enterToSend = true }) {
+export default function Conversations({
+  searchTerm,
+  onSearchTermChange,
+  enterToSend = true,
+  onConversationRead,
+}) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -122,6 +127,7 @@ export default function Conversations({ searchTerm, onSearchTermChange, enterToS
             ? { ...conversation, unread_count: 0, unreadCount: 0, unread: false }
             : conversation
         )));
+        return onConversationRead?.();
       })
       .catch((requestError) => {
         if (active) setError(requestError.message);
@@ -130,7 +136,7 @@ export default function Conversations({ searchTerm, onSearchTermChange, enterToS
     return () => {
       active = false;
     };
-  }, [selectedId]);
+  }, [selectedId, onConversationRead]);
 
   const filteredConversations = useMemo(() => {
     const normalizedQuery = normalizeSearch(searchTerm);

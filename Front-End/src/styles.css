@@ -267,7 +267,8 @@ select {
 }
 .nav-badge {
   margin-left: auto;
-  background: #fff;
+  background: #e06c63;
+  color: #fff;
   border-radius: 99px;
   padding: 2px 7px;
   font-size: 11px;
@@ -419,14 +420,22 @@ select {
 .notification {
   position: relative;
 }
-.notification i {
+.notification-badge {
   position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  top: -5px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--white);
+  border-radius: 999px;
   background: #e06c63;
-  right: 8px;
-  top: 7px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  pointer-events: none;
 }
 .page-content {
   padding: 30px 32px 42px;
@@ -1886,7 +1895,6 @@ th {
   .top-search {
     width: clamp(120px, 34vw, 180px);
   }
-  .conversation-top-actions .notification,
   .conversation-top-actions > .avatar {
     display: none;
   }

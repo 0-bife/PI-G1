@@ -332,6 +332,31 @@ test('conversation list returns latest message, open attendance and active respo
   assert.equal((result.data[0].responsaveis_ativos as unknown[]).length, 1);
 });
 
+test('notification summary reports unread count for the authenticated user and latest inbound message', async () => {
+  const request = await fixture(async (sql, values) => {
+    if (sql.includes('COUNT(*) AS unread_count')) {
+      assert.deepEqual(values, [1]);
+      assert.match(sql, /leitura\.FK_USUARIO_id_usuario = \?/);
+      assert.match(sql, /m\.origem = 'contato'/);
+      return [[{ unread_count: 4 }], []];
+    }
+    if (sql.includes('AS latest_incoming_message_id')) {
+      assert.equal(values, undefined);
+      assert.match(sql, /origem = 'contato'/);
+      return [[{ latest_incoming_message_id: 38 }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const response = await request('/api/notificacoes/resumo');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), {
+    unread_count: 4,
+    latest_incoming_message_id: 38,
+  });
+});
+
 test('marking a conversation as read stores the authenticated user watermark', async () => {
   const request = await fixture(async (sql, values) => {
     if (sql.startsWith('SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? LIMIT 1')) {

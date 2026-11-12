@@ -346,6 +346,13 @@ export function createApp(
     return res.status(204).end();
   });
 
+  app.get('/api/notificacoes/resumo', async (req: Request, res: Response) => {
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(await conversations.getNotificationSummary(userId));
+  });
+
   app.get('/api/conversas', async (req: Request, res: Response) => {
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
     const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);

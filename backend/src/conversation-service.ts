@@ -59,6 +59,11 @@ export interface ConversationView {
   responsaveis_ativos: AssignmentRow[];
 }
 
+export interface NotificationSummary {
+  unread_count: number;
+  latest_incoming_message_id: number;
+}
+
 async function inTransaction<T>(db: Pool, work: (connection: PoolConnection) => Promise<T>): Promise<T> {
   const connection = await db.getConnection();
   try {
@@ -174,6 +179,33 @@ export type AddAssignmentResult =
 
 export class ConversationService {
   constructor(private readonly db: Pool) {}
+
+  async getNotificationSummary(userId: number): Promise<NotificationSummary> {
+    const [unreadResult, latestResult] = await Promise.all([
+      this.db.execute<RowDataPacket[]>(
+        `SELECT COUNT(*) AS unread_count
+         FROM MENSAGEM m
+         LEFT JOIN CONVERSA_LEITURA leitura
+           ON leitura.FK_CONVERSA_id_conversa = m.FK_CONVERSA_id_conversa
+          AND leitura.FK_USUARIO_id_usuario = ?
+         WHERE m.origem = 'contato'
+           AND m.id_mensagem > COALESCE(leitura.id_mensagem_lida, 0)`,
+        [userId],
+      ),
+      this.db.execute<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(id_mensagem), 0) AS latest_incoming_message_id
+         FROM MENSAGEM
+         WHERE origem = 'contato'`,
+      ),
+    ]);
+    const unreadRows = unreadResult[0];
+    const latestRows = latestResult[0];
+
+    return {
+      unread_count: Number(unreadRows[0]?.unread_count ?? 0),
+      latest_incoming_message_id: Number(latestRows[0]?.latest_incoming_message_id ?? 0),
+    };
+  }
 
   async listConversations(
     page: number,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AppShell from './components/AppShell.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -6,7 +6,8 @@ import Conversas from './pages/Conversas.jsx';
 import Contatos from './pages/Contatos.jsx';
 import Relatorios from './pages/Relatorios.jsx';
 import Configuracoes from './pages/Configuracoes.jsx';
-import { checkMe, logout } from './api.ts';
+import { checkMe, getNotificationSummary, logout } from './api.ts';
+import { playNotificationSound } from './notification-sound.js';
 
 const SETTINGS_STORAGE_KEY = 'inablink.settings';
 
@@ -55,6 +56,80 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [conversationSearch, setConversationSearch] = useState('');
   const [preferences, setPreferences] = useState(loadPreferences);
+  const [notificationSummary, setNotificationSummary] = useState({
+    unread_count: 0,
+    latest_incoming_message_id: 0,
+  });
+  const [notificationError, setNotificationError] = useState('');
+  const notificationUserId = useRef(null);
+  const lastIncomingMessageId = useRef(null);
+  const notificationBaselineInitialized = useRef(false);
+
+  const refreshNotificationSummary = useCallback(async () => {
+    const summary = await getNotificationSummary();
+    setNotificationSummary(summary);
+    setNotificationError('');
+    return summary;
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id_usuario) {
+      notificationUserId.current = null;
+      lastIncomingMessageId.current = null;
+      notificationBaselineInitialized.current = false;
+      setNotificationSummary({ unread_count: 0, latest_incoming_message_id: 0 });
+      setNotificationError('');
+      return undefined;
+    }
+
+    if (notificationUserId.current !== user.id_usuario) {
+      notificationUserId.current = user.id_usuario;
+      lastIncomingMessageId.current = null;
+      notificationBaselineInitialized.current = false;
+    }
+
+    let active = true;
+    let inFlight = false;
+
+    async function pollNotifications() {
+      if (!active || inFlight) return;
+      inFlight = true;
+      try {
+        const summary = await refreshNotificationSummary();
+        if (!active) return;
+
+        const latestId = summary.latest_incoming_message_id;
+        if (notificationBaselineInitialized.current
+          && lastIncomingMessageId.current !== null
+          && latestId > lastIncomingMessageId.current
+          && preferences.notifications.messageSounds) {
+          void playNotificationSound();
+        }
+        lastIncomingMessageId.current = latestId;
+        notificationBaselineInitialized.current = true;
+      } catch (error) {
+        if (active) {
+          setNotificationError(error instanceof Error ? error.message : 'Não foi possível atualizar as notificações.');
+          console.error('Não foi possível atualizar as notificações.', error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') void pollNotifications();
+    }
+
+    void pollNotifications();
+    const intervalId = window.setInterval(pollNotifications, 5000);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user?.id_usuario, preferences.notifications.messageSounds, refreshNotificationSummary]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -75,6 +150,7 @@ export default function App() {
       setUser(null);
       setAuthError('');
       setPage('Login');
+      setNotificationSummary({ unread_count: 0, latest_incoming_message_id: 0 });
     };
     window.addEventListener('inablink:unauthorized', handleUnauthorized);
     if (sessionStorage.getItem('inablink.accessToken')) {
@@ -133,6 +209,7 @@ export default function App() {
         searchTerm={conversationSearch}
         onSearchTermChange={setConversationSearch}
         enterToSend={preferences.appearance.enterToSend}
+        onConversationRead={refreshNotificationSummary}
       />
     ),
     Contatos: <Contatos />,
@@ -155,6 +232,9 @@ export default function App() {
       profileName={preferences.profile.displayName}
       profileStatus={preferences.profile.status}
       profileAvatar={preferences.profile.avatar}
+      notificationCount={notificationSummary.unread_count}
+      notificationError={notificationError}
+      onOpenNotifications={() => setPage('Conversas')}
       onLogout={handleLogout}
       searchTerm={conversationSearch}
       onSearchTermChange={setConversationSearch}
