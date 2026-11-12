@@ -3,6 +3,11 @@
    ========================================================= */
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 :root {
+  font-size: 100%;
+  --font-body: 0.9375rem;
+  --font-caption: 0.75rem;
+  --font-section-title: 1rem;
+  --font-page-title: 1.375rem;
   --bg: #ede8d0;
   --surface: rgba(255, 254, 250, 0.88);
   --surface-muted: #f7f4e8;
@@ -42,7 +47,8 @@
 body {
   margin: 0;
   font-family: Inter, Arial, sans-serif;
-   font-size: 20px;
+  font-size: var(--font-body);
+  line-height: 1.5;
   color: var(--ink);
   background: var(--bg);
 }
@@ -2179,4 +2185,49 @@ th {
   .message-box {
     padding: 12px;
   }
+}
+
+/* Unified type scale for all legacy page and component rules. */
+body *:not(svg):not(path) {
+  font-size: var(--font-body) !important;
+}
+
+body h1,
+body :is(.page-heading h2, .welcome h2) {
+  font-size: var(--font-page-title) !important;
+  line-height: 1.25;
+}
+
+body h2 {
+  font-size: 1.125rem !important;
+  line-height: 1.3;
+}
+
+body :is(h3, h4, h5, h6) {
+  font-size: var(--font-section-title) !important;
+  line-height: 1.3;
+}
+
+body :is(
+  small,
+  .eyebrow,
+  .tag,
+  .nav-badge,
+  .notification-badge,
+  .conversation-unread-badge,
+  .status-badge,
+  .filter,
+  .rank,
+  .recent-row,
+  .activity-row,
+  .detail-group,
+  .customer-details,
+  .api-error
+) {
+  font-size: var(--font-caption) !important;
+  line-height: 1.4;
+}
+
+body :is(input, textarea, select, button) {
+  font-size: var(--font-body) !important;
 }
