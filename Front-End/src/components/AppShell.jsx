@@ -27,11 +27,32 @@ const navItems = [
   ["Configurações", Settings],
 ];
 
+function ProfileAvatar({ name, image }) {
+  const initials = name?.trim().charAt(0).toLocaleUpperCase("pt-BR") || "U";
+  return (
+    <div
+      className="avatar"
+      style={image ? {
+        backgroundImage: `url("${image}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      } : undefined}
+      role="img"
+      aria-label={image ? `Foto de ${name}` : `Iniciais do perfil: ${initials}`}
+    >
+      {!image && initials}
+    </div>
+  );
+}
+
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
 export default function AppShell({
   page,
   setPage,
   user,
+  profileName,
+  profileStatus,
+  profileAvatar,
   onLogout,
   searchTerm,
   onSearchTermChange,
@@ -48,6 +69,7 @@ export default function AppShell({
   const [isHovered, setIsHovered] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const isExpanded = isPinned || isHovered;
+  const displayName = profileName?.trim() || user?.nome || "Usuário";
 
   useEffect(() => {
     try {
@@ -120,10 +142,11 @@ export default function AppShell({
         </nav>
         <div className="sidebar-bottom">
           <div className="mini-profile">
-            <div className="avatar">IB</div>
+            <ProfileAvatar name={displayName} image={profileAvatar} />
             <div className="profile-label">
-              <strong>{user?.nome ?? "Usuário"}</strong>
+              <strong>{displayName}</strong>
               <small>{user?.perfil === "admin" ? "Administradora" : "Atendente"}</small>
+              {profileStatus && <small className="profile-status" title={profileStatus}>{profileStatus}</small>}
             </div>
             <MoreHorizontal size={18} />
           </div>
@@ -185,7 +208,7 @@ export default function AppShell({
               <Bell size={19} />
               <i />
             </button>
-            <div className="avatar">{user?.nome?.charAt(0) ?? 'IB'}</div>
+            <ProfileAvatar name={displayName} image={profileAvatar} />
           </div>
         </header>
         <section className="page-content">{children}</section>

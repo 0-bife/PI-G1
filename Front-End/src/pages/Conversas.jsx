@@ -46,7 +46,7 @@ function normalizeSearch(value) {
     .replace(/[\u0300-\u036f]/g, '');
 }
 
-export default function Conversations({ searchTerm, onSearchTermChange }) {
+export default function Conversations({ searchTerm, onSearchTermChange, enterToSend = true }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -163,6 +163,16 @@ export default function Conversations({ searchTerm, onSearchTermChange }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleMessageKeyDown(event) {
+    if (event.key !== 'Enter') return;
+    const shouldSend = enterToSend
+      ? !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+      : event.ctrlKey && !event.shiftKey;
+    if (!shouldSend) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function handleCreateAnnotation(event) {
@@ -344,11 +354,13 @@ export default function Conversations({ searchTerm, onSearchTermChange }) {
                 <button type="button" aria-label="Anexar arquivo" disabled>
                   <Paperclip size={20} />
                 </button>
-                <input
-                  type="text"
+                <textarea
+                  rows="1"
+                  aria-label="Digite uma mensagem"
                   placeholder="Digite uma mensagem..."
                   value={messageText}
                   onChange={(event) => setMessageText(event.target.value)}
+                  onKeyDown={handleMessageKeyDown}
                 />
                 <button
                   className="send-button"
