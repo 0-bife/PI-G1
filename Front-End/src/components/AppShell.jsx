@@ -5,7 +5,6 @@ import {
   Users,
   BarChart3,
   Settings,
-  Search,
   Bell,
   MoreHorizontal,
   LogOut,
@@ -39,8 +38,6 @@ export default function AppShell({
   notificationError = "",
   onOpenNotifications,
   onLogout,
-  searchTerm,
-  onSearchTermChange,
   children,
 }) {
   const [isPinned, setIsPinned] = useState(() => {
@@ -195,23 +192,7 @@ export default function AppShell({
               <p>Gerencie sua operação de atendimento.</p>
             </div>
           </div>
-          <div className={`top-actions ${page === "Conversas" ? "conversation-top-actions" : ""}`}>
-            {page === "Conversas" ? (
-              <label className="top-search">
-                <Search size={18} aria-hidden="true" />
-                <input
-                  type="search"
-                  aria-label="Buscar conversas por nome ou telefone"
-                  placeholder="Buscar conversas..."
-                  value={searchTerm}
-                  onChange={(event) => onSearchTermChange(event.target.value)}
-                />
-              </label>
-            ) : (
-              <button className="icon-btn" type="button" aria-label="Pesquisar">
-                <Search size={19} aria-hidden="true" />
-              </button>
-            )}
+          <div className="top-actions">
             <button
               className="icon-btn notification"
               type="button"

@@ -54,7 +54,6 @@ export default function App() {
   const [page, setPage] = useState(null);
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState('');
-  const [conversationSearch, setConversationSearch] = useState('');
   const [preferences, setPreferences] = useState(loadPreferences);
   const [notificationSummary, setNotificationSummary] = useState({
     unread_count: 0,
@@ -210,8 +209,6 @@ export default function App() {
     Dashboard: <Dashboard onOpenConversations={() => setPage('Conversas')} />,
     Conversas: (
       <Conversas
-        searchTerm={conversationSearch}
-        onSearchTermChange={setConversationSearch}
         enterToSend={preferences.appearance.enterToSend}
         onConversationRead={refreshNotificationSummary}
       />
@@ -241,8 +238,6 @@ export default function App() {
       notificationError={notificationError}
       onOpenNotifications={() => setPage('Conversas')}
       onLogout={handleLogout}
-      searchTerm={conversationSearch}
-      onSearchTermChange={setConversationSearch}
     >
       {screens[page]}
     </AppShell>

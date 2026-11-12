@@ -13,6 +13,7 @@ interface ConversationRow extends RowDataPacket {
   iniciado_em: string | null;
   prazo_retorno: string | null;
   ultima_mensagem_em: string | null;
+  unread_count?: number;
 }
 
 interface AttendanceRow extends RowDataPacket {
@@ -112,6 +113,19 @@ const conversationSelect = `
     ORDER BY recente.data_hora DESC, recente.id_mensagem DESC LIMIT 1
   )`;
 
+const unreadCountSelect = `(
+  SELECT COUNT(*)
+  FROM MENSAGEM nao_lida
+  WHERE nao_lida.FK_CONVERSA_id_conversa = v.id_conversa
+    AND nao_lida.origem = 'contato'
+    AND nao_lida.id_mensagem > COALESCE((
+      SELECT leitura.id_mensagem_lida
+      FROM CONVERSA_LEITURA leitura
+      WHERE leitura.FK_CONVERSA_id_conversa = v.id_conversa
+        AND leitura.FK_USUARIO_id_usuario = ?
+    ), 0)
+) AS unread_count`;
+
 function withAssignments<T extends ConversationRow | AttendanceRow>(
   rows: T[],
   assignments: AssignmentRow[],
@@ -196,15 +210,19 @@ export class ConversationService {
   async listConversations(
     page: number,
     limit: number,
+    userId: number,
     phone?: string,
   ): Promise<{ data: object[]; page: number; limit: number }> {
     const offset = (page - 1) * limit;
     const where = phone ? 'WHERE c.telefone = ?' : '';
     const [rows] = await this.db.execute<ConversationRow[]>(
-      `${conversationSelect} ${where}
+      `${conversationSelect.replace(
+        'SELECT v.id_conversa, v.criada_em,',
+        `SELECT v.id_conversa, v.criada_em, ${unreadCountSelect},`,
+      )} ${where}
        ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
        LIMIT ${limit} OFFSET ${offset}`,
-      phone ? [phone] : [],
+      phone ? [userId, phone] : [userId],
     );
     const attendanceIds = rows
       .map((row) => row.id_atendimento_aberto)
@@ -213,6 +231,26 @@ export class ConversationService {
       ? (await this.db.execute<AssignmentRow[]>(assignmentQuery(attendanceIds), attendanceIds))[0]
       : [];
     return { data: withAssignments(rows, assignments, 'id_atendimento_aberto'), page, limit };
+  }
+
+  async markConversationRead(conversationId: number, userId: number): Promise<boolean> {
+    const [conversations] = await this.db.execute<RowDataPacket[]>(
+      'SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? LIMIT 1',
+      [conversationId],
+    );
+    if (!conversations.length) return false;
+
+    await this.db.execute(
+      `INSERT INTO CONVERSA_LEITURA
+         (FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario, id_mensagem_lida)
+       SELECT ?, ?, COALESCE(MAX(id_mensagem), 0)
+       FROM MENSAGEM
+       WHERE FK_CONVERSA_id_conversa = ? AND origem = 'contato'
+       ON DUPLICATE KEY UPDATE
+         id_mensagem_lida = GREATEST(id_mensagem_lida, VALUES(id_mensagem_lida))`,
+      [conversationId, userId, conversationId],
+    );
+    return true;
   }
 
   async getConversation(id: number): Promise<ConversationView | null> {

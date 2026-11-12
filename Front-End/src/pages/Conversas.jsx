@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   MoreHorizontal,
   Paperclip,
   Phone,
   Plus,
-  Search,
   Send,
   Tag,
 } from 'lucide-react';
@@ -37,17 +36,7 @@ function isUnread(conversation) {
   return unreadCount(conversation) > 0;
 }
 
-function normalizeSearch(value) {
-  return value
-    .trim()
-    .toLocaleLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-}
-
 export default function Conversations({
-  searchTerm,
-  onSearchTermChange,
   enterToSend = true,
   onConversationRead,
 }) {
@@ -57,7 +46,6 @@ export default function Conversations({
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
   const [conversationLabels, setConversationLabels] = useState([]);
-  const [unreadOnly, setUnreadOnly] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [annotationText, setAnnotationText] = useState('');
   const [phone, setPhone] = useState('');
@@ -136,18 +124,6 @@ export default function Conversations({
       active = false;
     };
   }, [selectedId, onConversationRead]);
-
-  const filteredConversations = useMemo(() => {
-    const normalizedQuery = normalizeSearch(searchTerm);
-    const unreadQuery = /^(nao lidas?|unread)$/.test(normalizedQuery);
-    const query = unreadQuery ? '' : normalizedQuery;
-    return conversations.filter((conversation) => {
-      const matchesText = !query || normalizeSearch(
-        `${conversation.nome ?? ''} ${conversation.telefone}`,
-      ).includes(query);
-      return matchesText && (!(unreadOnly || unreadQuery) || isUnread(conversation));
-    });
-  }, [conversations, searchTerm, unreadOnly]);
 
   async function handleSendMessage(event) {
     event.preventDefault();
@@ -240,27 +216,6 @@ export default function Conversations({
       {error && <p className="api-error" role="alert">{error}</p>}
       <div className="conversation-layout">
         <section className="conversation-list">
-          <div className="search-box">
-            <Search size={17} aria-hidden="true" />
-            <input
-              type="text"
-              placeholder="Buscar conversa..."
-              value={searchTerm}
-              aria-label="Buscar conversas por nome ou telefone"
-              onChange={(event) => onSearchTermChange(event.target.value)}
-            />
-          </div>
-          <div className="filter-row">
-            <button
-              className={`filter ${unreadOnly ? 'active' : ''}`}
-              type="button"
-              aria-pressed={unreadOnly}
-              onClick={() => setUnreadOnly((current) => !current)}
-            >
-              Não lidas
-              <b>{conversations.filter(isUnread).length}</b>
-            </button>
-          </div>
           <button
             className="new-conversation"
             type="button"
@@ -283,10 +238,10 @@ export default function Conversations({
           )}
           <div className="conversation-items">
             {loading && <p className="empty-state">Carregando conversas...</p>}
-            {!loading && filteredConversations.length === 0 && (
+            {!loading && conversations.length === 0 && (
               <p className="empty-state">Nenhuma conversa encontrada.</p>
             )}
-            {filteredConversations.map((conversation) => (
+            {conversations.map((conversation) => (
               <button
                 key={conversation.id_conversa}
                 type="button"
@@ -309,9 +264,7 @@ export default function Conversations({
                     className="conversation-unread-badge"
                     aria-label={`${unreadCount(conversation)} mensagens não lidas`}
                   >
-                    {unreadCount(conversation) > 99
-                      ? '99+'
-                      : unreadCount(conversation)}
+                    {unreadCount(conversation) > 99 ? '99+' : unreadCount(conversation)}
                   </span>
                 )}
               </button>

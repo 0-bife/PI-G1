@@ -362,7 +362,9 @@ export function createApp(
       if (!e164(phone)) throw new RequestValidationError('telefone E.164 inválido.');
       phoneFilter = phone;
     }
-    return res.json(await conversations.listConversations(page, limit, phoneFilter));
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
+    return res.json(await conversations.listConversations(page, limit, userId, phoneFilter));
   });
   app.post('/api/conversas', async (req: Request, res: Response) => {
     if (req.authenticatedUser?.perfil !== 'admin' && req.authenticatedUser?.perfil !== 'atendente') {
@@ -381,6 +383,15 @@ export function createApp(
     const data = await conversations.getConversation(id);
     if (!data) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json({ data });
+  });
+  app.post('/api/conversas/:id/leitura', async (req: Request, res: Response) => {
+    const conversationId = positiveInteger(req.params.id, 'id');
+    const userId = req.authenticatedUser?.id_usuario;
+    if (!userId) throw new AuthenticationError();
+    if (!(await conversations.markConversationRead(conversationId, userId))) {
+      return res.status(404).json({ error: 'Conversation not found.' });
+    }
+    return res.status(204).end();
   });
   app.get('/api/conversas/:id/atendimentos', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');
