@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Building2,
   MoreHorizontal,
   Paperclip,
   Phone,
@@ -380,32 +379,6 @@ export default function Conversations({
             </section>
 
             <aside className="customer-panel">
-              <div className="customer-profile">
-                <div className="avatar large">
-                  {(selected.nome ?? selected.telefone).charAt(0)}
-                </div>
-                <h3>{selected.nome || selected.telefone}</h3>
-                <span className="status-badge">
-                  {selected.atendimento_aberto?.status || 'Sem atendimento ativo'}
-                </span>
-              </div>
-              <div className="customer-details">
-                <div>
-                  <span>Telefone</span>
-                  <strong>{selected.telefone}</strong>
-                </div>
-                <div>
-                  <span>Contato</span>
-                  <strong>
-                    <Building2 size={15} />
-                    {selected.nome || selected.telefone}
-                  </strong>
-                </div>
-                <div>
-                  <span>E-mail</span>
-                  <strong>{selected.email || 'Não informado'}</strong>
-                </div>
-              </div>
               <div className="customer-section">
                 <h4>Etiquetas</h4>
                 <div className="tags">
