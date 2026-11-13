@@ -238,9 +238,11 @@ export default function Conversations() {
                 <div className="conv-copy">
                   <div>
                     <strong>{conversation.nome || conversation.telefone}</strong>
-                    <span>{displayDate(conversation.ultima_mensagem_em)}</span>
+                    <span>{conversation.ultima_mensagem_em
+                      ? new Date(conversation.ultima_mensagem_em).toLocaleDateString('pt-BR')
+                      : ''}
+                    </span>
                   </div>
-                  <p>{conversation.telefone}</p>
                 </div>
               </button>
             ))}

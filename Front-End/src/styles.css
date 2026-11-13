@@ -677,15 +677,24 @@ select {
   border-radius: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 11px;
+  gap: 10px;
+  padding: 0 14px;
   color: var(--muted);
 }
+
+.recent-card {
+  padding: 20px 24px;
+}
+
+.recent-card .recent-row small {
+  white-space: nowrap;
+}
+
 .search-box input {
   border: 0;
   background: transparent;
   width: 100%;
-  font-size: 10px;
+  font-size: 12px;
 }
 .filter-row {
   display: flex;
@@ -719,9 +728,16 @@ select {
   background: transparent;
   padding: 14px;
   display: flex;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
   text-align: left;
   position: relative;
+  padding: 16px 18px;
+}
+.conversation-item .avatar {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
 }
 .conversation-item:hover,
 .conversation-item.selected {
@@ -734,12 +750,29 @@ select {
   min-width: 0;
   flex: 1;
 }
+.conv-copy p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
 .conv-copy div {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
 }
 .conv-copy strong {
-  font-size: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv-copy > div span {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .conv-copy small,
 .conv-copy span,
@@ -809,7 +842,7 @@ select {
 .chat-head strong,
 .chat-head span {
   display: block;
-  font-size: 10px;
+  font-size: 14px;
 }
 .chat-head span {
   font-size: 8px;
@@ -946,9 +979,17 @@ select {
   place-items: center;
 }
 .customer-panel {
+  padding: 24px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  font-size: 14px;
   background: var(--white);
   border-left: 1px solid var(--line);
   overflow: auto;
+}
+.customer-panel * {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .customer-top {
   text-align: center;
@@ -1638,18 +1679,45 @@ th {
     padding: 0 16px;
   }
 }
-/* Espaçamento interno da coluna de informações do cliente */
-.customer-panel {
-  padding: 24px;
-}
 
 .customer-profile {
   margin-bottom: 24px;
 }
 
+.customer-profile h3 {
+  font-size: 20px;
+  margin: 12px 0 8px;
+}
+
+.customer-profile .avatar.large {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+}
+
 .customer-details {
   margin-bottom: 24px;
 }
+
+.customer-details > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.customer-details span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.customer-details strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
 
 /* Campo de envio de mensagens */
 .message-box {
@@ -1696,11 +1764,10 @@ th {
   width: 100%;
   min-height: 80px;
   padding: 12px 14px;
-
+  font-family: inherit;
   background: #b6c0d8;
   border: none;
   border-radius: 12px;
-
   resize: none;
   font-size: 15px;
   color: #222;
@@ -1731,7 +1798,7 @@ th {
   border-radius: 8px;
   background: #e4e8f2;
   color: #52648d;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 .new-conversation-form {
@@ -1777,7 +1844,6 @@ th {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
   color: var(--muted);
 }
 .label-select select {
@@ -1787,12 +1853,12 @@ th {
   border: 1px solid var(--line);
   border-radius: 7px;
   background: white;
-  font-size: 10px;
+  font-size: 14px;
 }
 .note-button {
   margin-top: 8px;
   padding: 8px 10px;
-  font-size: 10px;
+  font-size: 14px;
 }
 .annotation-list article {
   margin-top: 10px;

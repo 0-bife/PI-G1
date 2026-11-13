@@ -35,7 +35,7 @@ export default function Dashboard({ onOpenConversations }) {
         </button>
       </div>
       {error && <p className="api-error" role="alert">{error}</p>}
-      <article className="card">
+      <article className="card recent-card">
         <div className="card-head">
           <div>
             <h3>Conversas recentes</h3>
