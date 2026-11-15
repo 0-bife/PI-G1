@@ -1364,6 +1364,18 @@ th {
 .toggle-line small {
   display: block;
 }
+.settings-message { color: var(--green); font-size: 13px; margin: 0 0 16px; }
+.settings-stack { display: grid; gap: 12px; }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.settings-row small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.inline-form { display: flex; flex-wrap: wrap; gap: 8px; }
+.inline-form input, .inline-form select, .password-form input { border: 1px solid var(--line); border-radius: 9px; padding: 10px; min-width: 150px; background: white; }
+.user-form input, .user-form select { flex: 1; }
+.password-form { display: grid; gap: 10px; max-width: 460px; }
+.password-form h4, .settings-stack h4 { margin: 4px 0; }
+.empty-settings { padding: 42px 10px; text-align: center; color: var(--muted); }
+.empty-settings strong { display: block; color: var(--ink); font-size: 22px; margin-bottom: 8px; }
+.danger { color: #b2544d; margin-left: 8px; }
 .toggle-line small {
   font-weight: 400;
   color: var(--muted);

@@ -61,7 +61,7 @@ export default function App() {
     Conversas: <Conversas />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
-    Configurações: <Configuracoes />,
+    Configurações: <Configuracoes user={user} />,
   };
 
   return <AppShell page={page} setPage={setPage} user={user} onLogout={handleLogout}>{screens[page]}</AppShell>;

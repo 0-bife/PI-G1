@@ -113,11 +113,23 @@ export class ContactService {
   }
 
   async deleteLabel(id: number): Promise<boolean> {
-    const [result] = await this.db.execute<ResultSetHeader>(
-      'DELETE FROM ETIQUETA WHERE id_etiqueta = ?',
-      [id],
-    );
-    return result.affectedRows > 0;
+    const connection = await this.db.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM classifica WHERE fk_ETIQUETA_id_etiqueta = ?', [id]);
+      await connection.execute('DELETE FROM marca WHERE fk_ETIQUETA_id_etiqueta = ?', [id]);
+      const [result] = await connection.execute<ResultSetHeader>(
+        'DELETE FROM ETIQUETA WHERE id_etiqueta = ?',
+        [id],
+      );
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async listContactLabels(phone: string): Promise<LabelRecord[] | null> {

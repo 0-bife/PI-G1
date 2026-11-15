@@ -15,6 +15,7 @@ import {
   WhatsAppDeliveryError,
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
+import { SettingsService } from './settings-service.js';
 
 function fail(message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status: 400 });
@@ -77,6 +78,7 @@ export function createApp(
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
+  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null);
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
@@ -157,6 +159,28 @@ export function createApp(
     return res.status(204).end();
   });
 
+  app.get('/api/configuracoes/perfil', async (_req: Request, res: Response) => {
+    return res.json({ data: await settings.get() });
+  });
+  app.patch('/api/configuracoes/perfil', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const body = isRecord(req.body) ? req.body : {};
+    const allowed = ['nome_perfil', 'email_contato', 'fuso_horario'];
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !allowed.includes(key))) {
+      throw new RequestValidationError('Informe nome_perfil, email_contato e/ou fuso_horario.');
+    }
+    try {
+      return res.json({ data: await settings.update({
+        ...(typeof body.nome_perfil === 'string' ? { nome_perfil: body.nome_perfil } : {}),
+        ...(typeof body.email_contato === 'string' ? { email_contato: body.email_contato } : {}),
+        ...(typeof body.fuso_horario === 'string' ? { fuso_horario: body.fuso_horario } : {}),
+      }) });
+    } catch (error) {
+      if (error instanceof Error) throw new RequestValidationError(error.message);
+      throw error;
+    }
+  });
+
   app.get('/api/usuarios', async (req: Request, res: Response) => {
     if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
@@ -197,6 +221,31 @@ export function createApp(
       email: body.email,
       perfil: body.perfil,
       ativo: body.ativo,
+    });
+    app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
+      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+      const id = positiveInteger(req.params.id, 'id');
+      const body = isRecord(req.body) ? req.body : {};
+      if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
+        throw new RequestValidationError('Informe somente nova_senha.');
+      }
+      const target = await auth.getUser(id);
+      if (!target) return res.status(404).json({ error: 'User not found.' });
+      if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
+        throw new AuthorizationError();
+      }
+      await auth.resetPassword(id, body.nova_senha);
+      return res.status(204).end();
+    });
+    app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
+      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+      const id = positiveInteger(req.params.id, 'id');
+      if (id === req.authenticatedUser.id_usuario) {
+        throw new RequestValidationError('O usuário logado não pode ser desativado.');
+      }
+      const updated = await auth.updateUser(id, { ativo: false });
+      if (!updated) return res.status(404).json({ error: 'User not found.' });
+      return res.status(204).end();
     });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
     return res.status(204).end();
