@@ -18,6 +18,25 @@ Configure `.env` com credenciais locais, incluindo `JWT_SECRET` com pelo menos 3
 
 O backend e seus testes são escritos em TypeScript. `npm run dev` executa os fontes com watch; `npm run build` compila os módulos ESM para `dist/`; `npm start` inicia essa compilação. A pasta `dist/` é gerada e não deve ser versionada.
 
+## Configurações e regras de negócio
+
+As rotas autenticadas de configurações são:
+
+| Rota | Regra |
+| --- | --- |
+| `GET /api/configuracoes/perfil` | Retorna nome do perfil, e-mail, fuso horário e o número da conta somente para leitura. |
+| `PATCH /api/configuracoes/perfil` | Somente admin; aceita `nome_perfil`, `email_contato` e `fuso_horario` (identificador IANA). O número da conta não pode ser alterado pela aplicação. |
+| `GET /api/usuarios` | Somente admin; lista usuários sem hashes de senha. |
+| `POST /api/usuarios` | Somente admin; cria usuário com nome, e-mail, perfil e senha inicial. |
+| `PATCH /api/usuarios/:id` | Somente admin; altera nome, e-mail, perfil ou status. |
+| `DELETE /api/usuarios/:id` | Somente admin; desativa a conta (soft delete), preservando mensagens, atendimentos e anotações vinculadas. O próprio admin não pode se desativar. |
+| `PATCH /api/usuarios/:id/password` | Admin altera a própria senha ou a senha de um atendente; outro admin não pode ser redefinido; revoga as sessões do alvo. |
+| `PATCH /api/auth/password` | Qualquer usuário altera a própria senha informando a senha atual; revoga todas as sessões. |
+| `GET/POST/PATCH/DELETE /api/etiquetas...` | Lista, cria, altera e exclui etiquetas. A exclusão remove somente as linhas das tabelas associativas `classifica` e `marca`, nunca conversas ou contatos. |
+
+Integrações e mensagens automáticas permanecem reservadas para uma versão futura. A opção de telefone do perfil é somente informativa: o número da conta não possui rota de alteração.
+Quando a tabela de configurações ainda não tiver uma linha, `WHATSAPP_ACCOUNT_NUMBER` fornece o número exibido como informação de conta; ele nunca é aceito no body de atualização.
+
 ## Autenticação JWT atual
 
 `POST /api/auth/login` emite JWT Bearer assinado com HS256 e validade de 12 horas para usuário ativo. Todas as rotas `/api/*`, exceto login e webhook Meta, exigem `Authorization: Bearer <accessToken>`. Cada requisição valida assinatura/expiração e consulta `AUTH_SESSAO` junto ao estado e perfil atuais do usuário.
@@ -115,6 +134,25 @@ async function logout(): Promise<void> {
 Se a rede falhar, o cliente limpou o token, mas a sessão do servidor não foi revogada e expirará em até 12 horas. Fechar a aba não garante chamada ao servidor; não tente usar `beforeunload` para revogação. A troca de senha envia `{ senha_atual, nova_senha }` a `PATCH /api/auth/password`; após `204`, a API revogou todas as sessões, então limpe a cópia local e volte ao login.
 
 Fluxo sugerido de telas: `/login` valida credenciais e guarda o token; a área autenticada carrega `/api/conversas?page=1&limit=20`; a seleção de conversa carrega `/api/conversas/:id/mensagens?page=1&limit=20`, responsáveis e etiquetas; envio de texto usa `POST /api/conversas/:id/mensagens`; histórico de entrega usa `/api/mensagens/:id/status`. Exiba anotações de `/api/conversas/:id/anotacoes` em área interna distinta das mensagens WhatsApp. Uma tela de troca de senha autenticada deve exigir senha atual e nova senha. O frontend não deve permitir editar/apagar mensagens nem atribuir autoria via body.
+
+### Busca de conversas e mensagens
+
+`GET /api/busca/conversas?q=<termo>&limit=50` pesquisa contatos pelo nome/telefone e mensagens pelo conteúdo. A resposta separa os resultados para que a interface possa abrir uma conversa ou navegar diretamente até a mensagem encontrada:
+
+```json
+{
+  "data": {
+    "conversas": [{ "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }],
+    "mensagens": [{
+      "id_mensagem": 88,
+      "conteudo": "Pedido confirmado",
+      "conversa": { "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }
+    }]
+  }
+}
+```
+
+O termo `q` é obrigatório e aceita até 255 caracteres. O `limit` aceita de 1 a 100 resultados em cada grupo.
 
 Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. A implementação das telas e do cliente HTTP está em `Front-End/`; consulte `Front-End/README.md` para configuração e exemplos.
 

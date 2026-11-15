@@ -39,26 +39,29 @@ export default function App() {
     setPage('Dashboard');
   };
 
-  if (!page) return null;
-  if (page === 'Login') return <Login onLogin={handleLogin} initialError={authError} />;
 
   async function handleLogout() {
     try {
       await logout();
+
     } catch (error) {
-      setAuthError(error.message);
+
     } finally {
+      setAuthError('');
       setUser(null);
       setPage('Login');
     }
   }
+  
+  if (!page) return null;
+  if (page === 'Login') return <Login onLogin={handleLogin} initialError={authError} />;
 
   const screens = {
     Dashboard: <Dashboard onOpenConversations={() => setPage('Conversas')} />,
     Conversas: <Conversas />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
-    Configurações: <Configuracoes />,
+    Configurações: <Configuracoes user={user} />,
   };
 
   return <AppShell page={page} setPage={setPage} user={user} onLogout={handleLogout}>{screens[page]}</AppShell>;

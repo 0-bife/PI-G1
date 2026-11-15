@@ -112,7 +112,7 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
         </nav>
         <div className="sidebar-bottom">
           <div className="mini-profile">
-            <div className="avatar">IB</div>
+            <div className="avatar">{user?.nome?.slice(0, 2).toUpperCase()}</div>
             <div className="profile-label">
               <strong>{user?.nome ?? "Usuário"}</strong>
               <small>{user?.perfil === "admin" ? "Administradora" : "Atendente"}</small>
@@ -157,14 +157,10 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
             </div>
           </div>
           <div className="top-actions">
-            <button className="icon-btn">
-              <Search size={19} />
-            </button>
             <button className="icon-btn notification">
               <Bell size={19} />
               <i />
             </button>
-            <div className="avatar">{user?.nome?.charAt(0) ?? 'IB'}</div>
           </div>
         </header>
         <section className="page-content">{children}</section>

@@ -30,6 +30,15 @@ export interface Message {
   nome_usuario: string | null;
 }
 
+export interface ConversationSearchMessage extends Message {
+  conversa: Pick<Conversation, 'id_conversa' | 'nome' | 'telefone'>;
+}
+
+export interface ConversationSearchResult {
+  conversas: Conversation[];
+  mensagens: ConversationSearchMessage[];
+}
+
 export interface Annotation {
   id_anotacao: number;
   texto: string;
@@ -49,6 +58,19 @@ export interface Label {
   id_etiqueta: number;
   nome: string;
   cor: string | null;
+}
+
+export interface BusinessSettings {
+  nome_perfil: string;
+  email_contato: string;
+  fuso_horario: string;
+  numero_conta: string | null;
+}
+
+interface UserPage {
+  data: User[];
+  page: number;
+  limit: number;
 }
 
 interface Page<T> {
@@ -162,12 +184,21 @@ export function getConversations(page = 1, limit = 20): Promise<Page<Conversatio
   return request<Page<Conversation>>(`/api/conversas?${queryPage(page, limit)}`);
 }
 
+export function searchConversations(query: string, limit = 50): Promise<{ data: ConversationSearchResult }> {
+  const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
+  return request<{ data: ConversationSearchResult }>(`/api/busca/conversas?${params.toString()}`);
+}
+
 export function createConversation(telefone: string): Promise<{ data: Conversation }> {
   return request<{ data: Conversation }>('/api/conversas', { method: 'POST', body: JSON.stringify({ telefone }) });
 }
 
 export function getConversationMessages(id: number, page = 1, limit = 20): Promise<Page<Message>> {
   return request<Page<Message>>(`/api/conversas/${id}/mensagens?${queryPage(page, limit)}`);
+}
+
+export function getMessage(id: number): Promise<{ data: Message }> {
+  return request<{ data: Message }>(`/api/mensagens/${id}`);
 }
 
 export function sendMessage(id: number, conteudo: string): Promise<{ data: Message }> {
@@ -209,4 +240,58 @@ export function getConversationLabels(id: number): Promise<{ data: Label[] }> {
 
 export function addConversationLabel(id: number, etiquetaId: number): Promise<void> {
   return request<void>(`/api/conversas/${id}/etiquetas/${etiquetaId}`, { method: 'PUT' });
+}
+
+export function getBusinessSettings(): Promise<{ data: BusinessSettings }> {
+  return request<{ data: BusinessSettings }>('/api/configuracoes/perfil');
+}
+
+export function updateBusinessSettings(input: Pick<BusinessSettings, 'nome_perfil' | 'email_contato' | 'fuso_horario'>): Promise<{ data: BusinessSettings }> {
+  return request<{ data: BusinessSettings }>('/api/configuracoes/perfil', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      nome_perfil: input.nome_perfil,
+      email_contato: input.email_contato,
+      fuso_horario: input.fuso_horario,
+    }),
+  });
+}
+
+export function getUsers(page = 1, limit = 100): Promise<UserPage> {
+  return request<UserPage>(`/api/usuarios?${queryPage(page, limit)}`);
+}
+
+export function createUser(input: { nome: string; email: string; senha: string; perfil: User['perfil'] }): Promise<{ data: User }> {
+  return request<{ data: User }>('/api/usuarios', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateUser(id: number, input: Partial<Pick<User, 'nome' | 'email' | 'perfil' | 'ativo'>>): Promise<void> {
+  return request<void>(`/api/usuarios/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function deactivateUser(id: number): Promise<void> {
+  return request<void>(`/api/usuarios/${id}`, { method: 'DELETE' });
+}
+
+export function resetUserPassword(id: number, nova_senha: string): Promise<void> {
+  return request<void>(`/api/usuarios/${id}/password`, { method: 'PATCH', body: JSON.stringify({ nova_senha }) });
+}
+
+export function changePassword(senha_atual: string, nova_senha: string): Promise<void> {
+  return request<void>('/api/auth/password', {
+    method: 'PATCH',
+    body: JSON.stringify({ senha_atual, nova_senha }),
+  });
+}
+
+export function createLabel(input: { nome: string; cor?: string }): Promise<{ data: Label }> {
+  return request<{ data: Label }>('/api/etiquetas', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateLabel(id: number, input: { nome?: string; cor?: string | null }): Promise<void> {
+  return request<void>(`/api/etiquetas/${id}`, { method: 'PATCH', body: JSON.stringify(input) });
+}
+
+export function deleteLabel(id: number): Promise<void> {
+  return request<void>(`/api/etiquetas/${id}`, { method: 'DELETE' });
 }

@@ -53,10 +53,13 @@ function ConversationList() {
 Operações disponíveis:
 
 - `login(email, senha)` e `logout()`; `checkMe()` valida a sessão no carregamento.
-- `getConversations(page, limit)` e `createConversation(telefone)`.
+- `getConversations(page, limit)`, `searchConversations(query, limit)` e `createConversation(telefone)`.
 - `getConversationMessages(id, page, limit)` e `sendMessage(id, conteudo)`.
+- `getMessage(id)` carrega a mensagem específica para navegação a partir da busca.
 - `getConversationAnnotations(id, page, limit)` e `createAnnotation(id, texto)`.
 - `getContacts(page, limit)` e `createContact({ telefone, nome, email })`.
 - `getLabels()`, `getConversationLabels(id)` e `addConversationLabel(id, etiquetaId)`.
 
 Todas as funções rejeitam com `ApiError` em falhas HTTP; o `message` contém a mensagem apropriada para exibição na interface e `status` mantém o status HTTP original.
+
+Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave.
