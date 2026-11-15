@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Building2,
@@ -18,7 +18,9 @@ import {
   getConversationLabels,
   getConversationMessages,
   getConversations,
+  getMessage,
   getLabels,
+  searchConversations,
   sendMessage,
 } from '../api.ts';
 
@@ -36,6 +38,9 @@ export default function Conversations() {
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
   const [conversationLabels, setConversationLabels] = useState([]);
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [pendingMessageId, setPendingMessageId] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [messageText, setMessageText] = useState('');
   const [annotationText, setAnnotationText] = useState('');
@@ -44,6 +49,7 @@ export default function Conversations() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const messagesRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -69,6 +75,35 @@ export default function Conversations() {
   const selectedId = selected?.id_conversa;
 
   useEffect(() => {
+    const query = searchTerm.trim();
+    if (!query) {
+      setSearchResults(null);
+      setSearchLoading(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = setTimeout(() => {
+      setSearchLoading(true);
+      searchConversations(query)
+        .then((result) => {
+          if (active) setSearchResults(result.data);
+        })
+        .catch((requestError) => {
+          if (active) setError(requestError.message);
+        })
+        .finally(() => {
+          if (active) setSearchLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchTerm]);
+
+  useEffect(() => {
     if (selectedId === undefined) {
       setMessages([]);
       setAnnotations([]);
@@ -87,9 +122,18 @@ export default function Conversations() {
       getConversationAnnotations(selectedId),
       getConversationLabels(selectedId),
     ])
-      .then(([messagePage, annotationPage, labelResult]) => {
+      .then(async ([messagePage, annotationPage, labelResult]) => {
         if (!active) return;
-        setMessages(messagePage.data);
+        let loadedMessages = messagePage.data;
+        if (pendingMessageId !== null && !loadedMessages.some(
+          (message) => String(message.id_mensagem) === String(pendingMessageId),
+        )) {
+          const targetMessage = (await getMessage(pendingMessageId)).data;
+          if (!active) return;
+          loadedMessages = [...loadedMessages, targetMessage]
+            .sort((left, right) => new Date(left.data_hora) - new Date(right.data_hora));
+        }
+        setMessages(loadedMessages);
         setAnnotations(annotationPage.data);
         setConversationLabels(labelResult.data);
       })
@@ -100,16 +144,41 @@ export default function Conversations() {
     return () => {
       active = false;
     };
-  }, [selectedId]);
+  }, [selectedId, pendingMessageId]);
 
   const filteredConversations = useMemo(() => {
+    if (searchTerm.trim()) return searchResults?.conversas ?? [];
     const query = searchTerm.trim().toLocaleLowerCase();
     return conversations.filter((conversation) =>
       `${conversation.nome ?? ''} ${conversation.telefone}`
         .toLocaleLowerCase()
         .includes(query),
     );
-  }, [conversations, searchTerm]);
+  }, [conversations, searchResults, searchTerm]);
+
+  const focusMessage = useCallback((element) => {
+    if (
+      !element
+      || pendingMessageId === null
+      || String(element.dataset.messageId) !== String(pendingMessageId)
+    ) return;
+
+    requestAnimationFrame(() => {
+      const container = messagesRef.current;
+      if (!container || !element.isConnected) return;
+      const targetTop = element.offsetTop - (container.clientHeight - element.offsetHeight) / 2;
+      container.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+      element.classList.add('message-highlight');
+      window.setTimeout(() => element.classList.remove('message-highlight'), 1400);
+      setPendingMessageId(null);
+    });
+  }, [pendingMessageId]);
+
+  function openConversation(conversation, messageId = null) {
+    setSelected(conversation);
+    setPendingMessageId(messageId);
+    setMobileView('chat');
+  }
 
   async function handleSendMessage(event) {
     event.preventDefault();
@@ -197,7 +266,7 @@ export default function Conversations() {
             <Search size={17} />
             <input
               type="text"
-              placeholder="Buscar conversa..."
+              placeholder="Buscar contato ou mensagem..."
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
@@ -223,18 +292,60 @@ export default function Conversations() {
             </form>
           )}
           <div className="conversation-items">
-            {loading && <p className="empty-state">Carregando conversas...</p>}
-            {!loading && filteredConversations.length === 0 && (
+            {searchTerm.trim() && searchLoading && (
+              <p className="empty-state">Buscando...</p>
+            )}
+            {searchTerm.trim() && !searchLoading && searchResults && (
+              <>
+                {searchResults.conversas.map((conversation) => (
+                  <button
+                    key={`conversation-${conversation.id_conversa}`}
+                    type="button"
+                    className="conversation-item search-result"
+                    onClick={() => openConversation(conversation)}
+                    disabled={busy}
+                  >
+                    <div className="avatar">
+                      {(conversation.nome ?? conversation.telefone).charAt(0)}
+                    </div>
+                    <div className="conv-copy">
+                      <strong>{conversation.nome || conversation.telefone}</strong>
+                      <span>Conversa</span>
+                    </div>
+                  </button>
+                ))}
+                {searchResults.mensagens.map((message) => (
+                  <button
+                    key={`message-${message.id_mensagem}`}
+                    type="button"
+                    className="conversation-item search-result"
+                    onClick={() => openConversation(message.conversa, message.id_mensagem)}
+                    disabled={busy}
+                  >
+                    <div className="avatar">
+                      {(message.conversa.nome ?? message.conversa.telefone).charAt(0)}
+                    </div>
+                    <div className="conv-copy">
+                      <strong>{message.conversa.nome || message.conversa.telefone}</strong>
+                      <span>{message.conteudo || `[${message.tipo}]`}</span>
+                    </div>
+                  </button>
+                ))}
+              </>
+            )}
+            {searchTerm.trim() && !searchLoading && searchResults
+              && !searchResults.conversas.length && !searchResults.mensagens.length && (
+              <p className="empty-state">Nenhum resultado encontrado.</p>
+            )}
+            {!searchTerm.trim() && loading && <p className="empty-state">Carregando conversas...</p>}
+            {!searchTerm.trim() && !loading && filteredConversations.length === 0 && (
               <p className="empty-state">Nenhuma conversa encontrada.</p>
             )}
-            {filteredConversations.map((conversation) => (
+            {!searchTerm.trim() && filteredConversations.map((conversation) => (
               <button
                 key={conversation.id_conversa}
                 type="button"
-                onClick={() => {
-                  setSelected(conversation);
-                  setMobileView('chat');
-                }}
+                onClick={() => openConversation(conversation)}
                 disabled={busy}
                 className={`conversation-item ${selectedId === conversation.id_conversa ? 'selected' : ''}`}
               >
@@ -277,21 +388,23 @@ export default function Conversations() {
                   </div>
                 </div>
                 <div className="chat-actions">
-                  <button type="button" aria-label="Telefone">
+                  {/*<button type="button" aria-label="Telefone">
                     <Phone size={19} />
-                  </button>
-                  <button type="button" aria-label="Mais opções">
+                  </button>*/}
+                  {/*<button type="button" aria-label="Mais opções">
                     <MoreHorizontal size={19} />
-                  </button>
+                  </button>*/}
                 </div>
               </div>
-              <div className="messages">
+              <div className="messages" ref={messagesRef}>
                 {messages.length === 0 && (
                   <p className="empty-state">Nenhuma mensagem nesta conversa.</p>
                 )}
                 {messages.map((message) => (
                   <div
                     key={message.id_mensagem}
+                    ref={focusMessage}
+                    data-message-id={message.id_mensagem}
                     className={`message ${message.origem === 'contato' ? 'received' : 'sent'}`}
                   >
                     {message.conteudo || `[${message.tipo}]`}
@@ -300,9 +413,9 @@ export default function Conversations() {
                 ))}
               </div>
               <form className="message-box" onSubmit={handleSendMessage}>
-                <button type="button" aria-label="Anexar arquivo" disabled>
+                {/*}button type="button" aria-label="Anexar arquivo" disabled>
                   <Paperclip size={20} />
-                </button>
+                </button>*/}
                 <input
                   type="text"
                   placeholder="Digite uma mensagem..."

@@ -30,6 +30,15 @@ export interface Message {
   nome_usuario: string | null;
 }
 
+export interface ConversationSearchMessage extends Message {
+  conversa: Pick<Conversation, 'id_conversa' | 'nome' | 'telefone'>;
+}
+
+export interface ConversationSearchResult {
+  conversas: Conversation[];
+  mensagens: ConversationSearchMessage[];
+}
+
 export interface Annotation {
   id_anotacao: number;
   texto: string;
@@ -162,12 +171,21 @@ export function getConversations(page = 1, limit = 20): Promise<Page<Conversatio
   return request<Page<Conversation>>(`/api/conversas?${queryPage(page, limit)}`);
 }
 
+export function searchConversations(query: string, limit = 50): Promise<{ data: ConversationSearchResult }> {
+  const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
+  return request<{ data: ConversationSearchResult }>(`/api/busca/conversas?${params.toString()}`);
+}
+
 export function createConversation(telefone: string): Promise<{ data: Conversation }> {
   return request<{ data: Conversation }>('/api/conversas', { method: 'POST', body: JSON.stringify({ telefone }) });
 }
 
 export function getConversationMessages(id: number, page = 1, limit = 20): Promise<Page<Message>> {
   return request<Page<Message>>(`/api/conversas/${id}/mensagens?${queryPage(page, limit)}`);
+}
+
+export function getMessage(id: number): Promise<{ data: Message }> {
+  return request<{ data: Message }>(`/api/mensagens/${id}`);
 }
 
 export function sendMessage(id: number, conteudo: string): Promise<{ data: Message }> {

@@ -183,6 +183,66 @@ export class ConversationService {
     return { data: withAssignments(rows, assignments, 'id_atendimento_aberto'), page, limit };
   }
 
+  async searchConversations(query: string, limit: number): Promise<{
+    conversas: object[];
+    mensagens: object[];
+  }> {
+    const term = `%${query}%`;
+    const [conversationRows] = await this.db.execute<ConversationRow[]>(
+      `${conversationSelect}
+       WHERE c.nome LIKE ? OR c.telefone LIKE ?
+       ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
+       LIMIT ${limit}`,
+      [term, term],
+    );
+    const [messageRows] = await this.db.execute<RowDataPacket[]>(
+      `SELECT m.id_mensagem, m.data_hora, m.conteudo, m.origem, m.status, m.tipo,
+              m.FK_CONVERSA_id_conversa, u.nome AS nome_usuario,
+              v.id_conversa, c.nome AS contato_nome, c.telefone AS contato_telefone
+       FROM MENSAGEM m
+       JOIN CONVERSA v ON v.id_conversa = m.FK_CONVERSA_id_conversa
+       JOIN CONTATO c ON c.id_contato = v.FK_CONTATO_id_contato
+       LEFT JOIN USUARIO u ON u.id_usuario = m.FK_USUARIO_id_usuario
+       WHERE m.conteudo LIKE ?
+       ORDER BY m.data_hora DESC, m.id_mensagem DESC
+       LIMIT ${limit}`,
+      [term],
+    );
+
+    return {
+      conversas: conversationRows.map((row) => ({
+        id_conversa: row.id_conversa,
+        criada_em: row.criada_em,
+        id_contato: row.id_contato,
+        telefone: row.telefone,
+        nome: row.nome,
+        email: row.email,
+        ultima_mensagem_em: row.ultima_mensagem_em,
+        atendimento_aberto: row.id_atendimento_aberto === null ? null : {
+          id_atendimento: row.id_atendimento_aberto,
+          status: row.status_atendimento,
+          iniciado_em: row.iniciado_em,
+          prazo_retorno: row.prazo_retorno,
+        },
+      })),
+      mensagens: messageRows.map((row) => ({
+        id_mensagem: row.id_mensagem,
+        data_hora: row.data_hora,
+        conteudo: row.conteudo,
+        origem: row.origem,
+        status: row.status,
+        tipo: row.tipo,
+        FK_CONVERSA_id_conversa: row.FK_CONVERSA_id_conversa,
+        nome_usuario: row.nome_usuario ?? null,
+        conversa: {
+          id_conversa: row.id_conversa,
+          nome: row.contato_nome,
+          telefone: row.contato_telefone,
+        },
+      })),
+    };
+  }
+
   async getConversation(id: number): Promise<ConversationView | null> {
     const [rows] = await this.db.execute<ConversationRow[]>(
       `${conversationSelect} WHERE v.id_conversa = ? LIMIT 1`,

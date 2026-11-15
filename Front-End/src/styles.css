@@ -794,6 +794,14 @@ select {
   font-style: normal;
   color: #8d8a81;
 }
+.search-result .conv-copy {
+  display: grid;
+  gap: 4px;
+}
+.search-result .conv-copy span {
+  margin: 0;
+  font-size: 11px;
+}
 .unread {
   position: absolute;
   right: 14px;
@@ -915,6 +923,20 @@ select {
 .message.sent {
   margin-left: auto;
   background: #6C8DDA;
+}
+.message-highlight {
+  animation: message-search-highlight 1.4s ease;
+}
+@keyframes message-search-highlight {
+  0%,
+  100% {
+    outline: 0 solid transparent;
+  }
+  20%,
+  70% {
+    outline: 3px solid var(--accent-dark);
+    outline-offset: 3px;
+  }
 }
 
 .date-divider {

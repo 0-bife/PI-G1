@@ -116,6 +116,25 @@ Se a rede falhar, o cliente limpou o token, mas a sessão do servidor não foi r
 
 Fluxo sugerido de telas: `/login` valida credenciais e guarda o token; a área autenticada carrega `/api/conversas?page=1&limit=20`; a seleção de conversa carrega `/api/conversas/:id/mensagens?page=1&limit=20`, responsáveis e etiquetas; envio de texto usa `POST /api/conversas/:id/mensagens`; histórico de entrega usa `/api/mensagens/:id/status`. Exiba anotações de `/api/conversas/:id/anotacoes` em área interna distinta das mensagens WhatsApp. Uma tela de troca de senha autenticada deve exigir senha atual e nova senha. O frontend não deve permitir editar/apagar mensagens nem atribuir autoria via body.
 
+### Busca de conversas e mensagens
+
+`GET /api/busca/conversas?q=<termo>&limit=50` pesquisa contatos pelo nome/telefone e mensagens pelo conteúdo. A resposta separa os resultados para que a interface possa abrir uma conversa ou navegar diretamente até a mensagem encontrada:
+
+```json
+{
+  "data": {
+    "conversas": [{ "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }],
+    "mensagens": [{
+      "id_mensagem": 88,
+      "conteudo": "Pedido confirmado",
+      "conversa": { "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }
+    }]
+  }
+}
+```
+
+O termo `q` é obrigatório e aceita até 255 caracteres. O `limit` aceita de 1 a 100 resultados em cada grupo.
+
 Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. A implementação das telas e do cliente HTTP está em `Front-End/`; consulte `Front-End/README.md` para configuração e exemplos.
 
 ## Relatórios, dashboard e alertas

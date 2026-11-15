@@ -346,6 +346,15 @@ export function createApp(
     return res.status(204).end();
   });
 
+  app.get('/api/busca/conversas', async (req: Request, res: Response) => {
+    const query = req.query.q;
+    const limit = positiveInteger(req.query.limit ?? 50, 'limit', 100);
+    if (typeof query !== 'string' || !query.trim() || [...query.trim()].length > 255) {
+      throw new RequestValidationError('q é obrigatório e deve ter até 255 caracteres.');
+    }
+    return res.json({ data: await conversations.searchConversations(query.trim(), limit) });
+  });
+
   app.get('/api/conversas', async (req: Request, res: Response) => {
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
     const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
