@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowLeft,
   Building2,
   MoreHorizontal,
   Paperclip,
@@ -30,6 +31,7 @@ function displayDate(value) {
 export default function Conversations() {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
+  const [mobileView, setMobileView] = useState('list');
   const [messages, setMessages] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
@@ -158,6 +160,7 @@ export default function Conversations() {
       setConversations(result.data);
       const created = result.data.find((conversation) => conversation.telefone === requestedPhone);
       setSelected(created ?? result.data[0] ?? null);
+      setMobileView('chat');
       setPhone('');
       setShowCreate(false);
     } catch (requestError) {
@@ -188,7 +191,7 @@ export default function Conversations() {
   return (
     <>
       {error && <p className="api-error" role="alert">{error}</p>}
-      <div className="conversation-layout">
+      <div className={`conversation-layout ${mobileView === 'chat' ? 'mobile-chat-view' : 'mobile-list-view'}`}>
         <section className="conversation-list">
           <div className="search-box">
             <Search size={17} />
@@ -228,7 +231,10 @@ export default function Conversations() {
               <button
                 key={conversation.id_conversa}
                 type="button"
-                onClick={() => setSelected(conversation)}
+                onClick={() => {
+                  setSelected(conversation);
+                  setMobileView('chat');
+                }}
                 disabled={busy}
                 className={`conversation-item ${selectedId === conversation.id_conversa ? 'selected' : ''}`}
               >
@@ -253,6 +259,14 @@ export default function Conversations() {
           <>
             <section className="chat">
               <div className="chat-head">
+                <button
+                  className="mobile-back-button"
+                  type="button"
+                  aria-label="Voltar para a lista de conversas"
+                  onClick={() => setMobileView('list')}
+                >
+                  <ArrowLeft size={19} />
+                </button>
                 <div className="customer-top">
                   <div className="avatar">
                     {(selected.nome ?? selected.telefone).charAt(0)}
