@@ -31,7 +31,7 @@ Pequenas empresas usam o WhatsApp como principal canal de comunicação com os c
 ## Estrutura do repositório
 
 ```
-BD/          Script SQL do banco (modelo_fisico_corrigido.sql)
+BD/          Script SQL do banco (inablink_criacao.sql)
 backend/     API Node.js + Express (guia detalhado em backend/README.md)
 Front-End/   Aplicação React + Vite
 doc/         Documentação e requisitos
@@ -42,83 +42,6 @@ doc/         Documentação e requisitos
 - Node.js **22 ou superior**
 - MySQL
 - Para a integração real com o WhatsApp: conta Meta for Developers com um app do WhatsApp Business
-
-## Como executar localmente
-
-### 1. Banco de dados
-
-Crie o banco e aplique o schema em um banco **vazio**:
-
-```sql
-CREATE DATABASE inablink CHARACTER SET utf8mb4;
-USE inablink;
-SOURCE BD/modelo_fisico_corrigido.sql;
-```
-
-> O script instala um schema vazio e **não migra** bancos existentes. Não o reaplique sobre dados. O backend também não cria nem altera tabelas sozinho.
-
-### 2. Backend
-
-```bash
-cd backend
-npm ci
-cp .env.example .env      # no PowerShell: Copy-Item .env.example .env
-```
-
-Edite o `.env` (veja a tabela de variáveis abaixo) e crie o primeiro administrador:
-
-```bash
-npm run build
-
-# Linux/macOS (bash)
-BOOTSTRAP_ADMIN_NAME="Admin" \
-BOOTSTRAP_ADMIN_EMAIL="admin@exemplo.com" \
-BOOTSTRAP_ADMIN_PASSWORD="uma-senha-com-12-a-128-caracteres" \
-npm run admin:create
-
-# Windows (PowerShell)
-$env:BOOTSTRAP_ADMIN_NAME="Admin"
-$env:BOOTSTRAP_ADMIN_EMAIL="admin@exemplo.com"
-$env:BOOTSTRAP_ADMIN_PASSWORD="uma-senha-com-12-a-128-caracteres"
-npm run admin:create
-```
-
-O comando só funciona com a tabela `USUARIO` vazia e grava apenas o hash da senha. Depois de executar, remova essas variáveis do ambiente (no PowerShell: `Remove-Item Env:BOOTSTRAP_ADMIN_*`).
-
-Inicie a API:
-
-```bash
-npm run dev      # com watch, em http://127.0.0.1:3000
-```
-
-Verifique: `GET http://127.0.0.1:3000/health` deve responder `{ "status": "ok" }`, e `GET /health/ready` confirma a conexão com o MySQL.
-
-### 3. Frontend
-
-```bash
-cd Front-End
-npm install
-```
-
-Crie `Front-End/.env.development` apontando para a API:
-
-```env
-VITE_API_BASE_URL=http://127.0.0.1:3000
-```
-
-E no `backend/.env` libere a origem do frontend:
-
-```env
-CORS_ORIGINS=http://localhost:5173
-```
-
-Inicie o Vite:
-
-```bash
-npm run dev      # http://localhost:5173
-```
-
-Reinicie o `npm run dev` sempre que alterar arquivos `.env`.
 
 ## Variáveis de ambiente (backend)
 
@@ -138,12 +61,6 @@ Copie `backend/.env.example` para `backend/.env`. Nunca versione o `.env`.
 | `WHATSAPP_VERIFY_TOKEN` | Token que você define para a verificação do webhook. |
 | `WHATSAPP_APP_SECRET` | Segredo do app Meta, usado para validar a assinatura do webhook. |
 | `WHATSAPP_API_VERSION` | Versão da Graph API suportada pelo seu app (ex.: `v21.0`; confira no painel Meta). |
-
-Para gerar um `JWT_SECRET`:
-
-```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
-```
 
 `JWT_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos: nunca os coloque no repositório, em logs ou no frontend.
 
@@ -302,19 +219,6 @@ Publique em um serviço que rode Node.js 22+ com HTTPS e MySQL acessível. Confi
 - O perfil e a identidade do usuário vêm sempre do banco, nunca de parâmetros enviados pelo cliente.
 - Mensagens e notas formam histórico e não podem ser apagadas pela API.
 - Nunca versione `.env`, tokens ou senhas. Se um segredo vazar, troque-o imediatamente.
-
-## Problemas comuns
-
-| Sintoma | Causa provável |
-| --- | --- |
-| `ER_NO_SUCH_TABLE` | O banco foi criado com um schema antigo ou incompleto. Compare `SHOW TABLES;` com o script em `BD/`. |
-| `404` em `/api/...` no navegador | A requisição foi para o servidor do Vite. Defina `VITE_API_BASE_URL` e reinicie o Vite. |
-| `ERR_CONNECTION_REFUSED` / `ECONNREFUSED` | O backend não está rodando na porta configurada. |
-| Erro de CORS | A origem do frontend não está em `CORS_ORIGINS` (inclua protocolo e porta). |
-| `ETIMEDOUT` ou falha ao conectar no MySQL | Host, porta ou firewall incorretos; ou `DB_SSL=true` em um MySQL sem TLS. |
-| `500` genérico | A resposta esconde o erro de propósito; veja o `code` no terminal do backend. |
-| `JWT_SECRET must contain at least 32 UTF-8 bytes` | A chave está vazia ou curta demais. |
-| `admin:create` falha | Rode `npm run build` antes, confira as três variáveis `BOOTSTRAP_ADMIN_*` e use um banco com `USUARIO` vazia. |
 
 ## Licença
 
