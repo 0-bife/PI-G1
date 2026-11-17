@@ -78,7 +78,7 @@ export function createApp(
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
-  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null);
+  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null, whatsappClient);
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
@@ -176,6 +176,9 @@ export function createApp(
         ...(typeof body.fuso_horario === 'string' ? { fuso_horario: body.fuso_horario } : {}),
       }) });
     } catch (error) {
+      if (error instanceof Error && typeof (error as unknown as Record<string, unknown>).statusCode === 'number') {
+        return res.status(502).json({ error: 'WhatsApp provider rejected the profile update.' });
+      }
       if (error instanceof Error) throw new RequestValidationError(error.message);
       throw error;
     }

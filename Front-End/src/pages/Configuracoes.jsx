@@ -39,9 +39,15 @@ export default function Configuracoes({ user }) {
   const [editingLabel, setEditingLabel] = useState(null);
   const [newLabel, setNewLabel] = useState({ nome: '', cor: '' });
   const [passwords, setPasswords] = useState({ atual: '', nova: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
-    getBusinessSettings().then(({ data }) => setSettings(data)).catch((error) => setMessage(error.message));
+    setLoadingProfile(true);
+    getBusinessSettings()
+      .then(({ data }) => setSettings(data))
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoadingProfile(false));
   }, []);
 
   useEffect(() => {
@@ -55,11 +61,17 @@ export default function Configuracoes({ user }) {
 
   async function saveProfile(event) {
     event.preventDefault();
+    setSavingProfile(true);
+    setMessage('');
     try {
       const result = await updateBusinessSettings(settings);
       setSettings(result.data);
-      setMessage('Perfil salvo.');
-    } catch (error) { setMessage(error.message); }
+      setMessage('Perfil do WhatsApp salvo com sucesso.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSavingProfile(false);
+    }
   }
 
   async function savePassword(event) {
@@ -155,6 +167,10 @@ export default function Configuracoes({ user }) {
           <h3>{tab}</h3>
           <ActionMessage message={message} />
 
+          {tab === 'Perfil' && loadingProfile && !settings && (
+            <p>Carregando dados do perfil do WhatsApp...</p>
+          )}
+
           {tab === 'Perfil' && settings && (
             <form onSubmit={saveProfile}>
               <div className="form-grid settings-fields">
@@ -163,7 +179,7 @@ export default function Configuracoes({ user }) {
                 <label>Fuso horário<select value={settings.fuso_horario} onChange={(e) => setSettings({ ...settings, fuso_horario: e.target.value })} disabled={!admin}>{timezones.map((zone) => <option key={zone}>{zone}</option>)}</select></label>
                 <label>Número da conta<input value={settings.numero_conta ?? 'Não informado'} readOnly /></label>
               </div>
-              {admin && <button className="primary" type="submit">Salvar alterações</button>}
+              {admin && <button className="primary" type="submit" disabled={savingProfile}>{savingProfile ? 'Salvando na Meta...' : 'Salvar alterações'}</button>}
             </form>
           )}
 
