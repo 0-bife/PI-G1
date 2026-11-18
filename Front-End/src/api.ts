@@ -96,9 +96,6 @@ export class ApiError extends Error {
 
 function handleUnauthorized(): void {
   sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-  if (window.location.pathname !== '/login') {
-    window.history.replaceState(null, '', '/login');
-  }
   window.dispatchEvent(new Event('inablink:unauthorized'));
 }
 
