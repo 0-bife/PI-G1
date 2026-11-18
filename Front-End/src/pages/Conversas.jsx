@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { labelStyle } from '../labelColors.js';
 import {
   ArrowLeft,
   Building2,
@@ -464,7 +465,7 @@ export default function Conversations() {
                 <h4>Etiquetas</h4>
                 <div className="tags">
                   {conversationLabels.map((label) => (
-                    <span className="tag" key={label.id_etiqueta}>{label.nome}</span>
+                    <span className="tag" key={label.id_etiqueta} style={labelStyle(label.cor)}>{label.nome}</span>
                   ))}
                 </div>
                 <label className="label-select">
