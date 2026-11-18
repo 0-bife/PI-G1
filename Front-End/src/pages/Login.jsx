@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Clock, Eye, MessageCircle } from 'lucide-react';
+import { Clock, Eye, EyeOff, MessageCircle } from 'lucide-react';
 import { login } from '../api.ts';
 import Logo from '../components/Logo.jsx';
 
 export default function Login({ onLogin, initialError = '' }) {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(false);
 
@@ -38,6 +39,7 @@ export default function Login({ onLogin, initialError = '' }) {
             <input
               required
               type="email"
+              autoComplete="username"
               placeholder="voce@empresa.com"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
@@ -49,19 +51,22 @@ export default function Login({ onLogin, initialError = '' }) {
             <div className="password">
               <input
                 required
-                type="password"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
                 placeholder="••••••••"
                 value={senha}
                 onChange={(event) => setSenha(event.target.value)}
               />
-              <Eye size={18} />
+              <button
+                type="button"
+                className="password-toggle"
+                aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                onClick={() => setShowPassword((visible) => !visible)}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </label>
-
-          <div className="login-links">
-            <label><input type="checkbox" /> Lembrar de mim</label>
-            <button type="button">Esqueci minha senha</button>
-          </div>
 
           {error && <p className="api-error" role="alert">{error}</p>}
 
@@ -70,7 +75,7 @@ export default function Login({ onLogin, initialError = '' }) {
           </button>
 
           <p className="signup">
-            Ainda não tem conta? <button type="button">Criar conta</button>
+            Não tem acesso? Fale com o administrador da sua empresa.
           </p>
         </form>
 
