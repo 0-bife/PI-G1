@@ -1,6 +1,6 @@
 # InAblink
 
-**PI-G1 · Projeto Interdisciplinar ADS2 · FatecID · Grupo 1**
+**PI-G1 · Projeto Interdisciplinar ADS2 · FatecID · Grupo 1 · Clara Madeira, Flávia Lopes, Isabely da Silva e Rubens Maglio**
 
 Plataforma de atendimento via **WhatsApp Business** para pequenas e médias empresas que têm atendimento ao público.
 
