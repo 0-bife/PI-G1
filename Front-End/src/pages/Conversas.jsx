@@ -31,7 +31,7 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
 }
 
-export default function Conversations() {
+export default function Conversations({ focusId, onFocusHandled }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [mobileView, setMobileView] = useState('list');
@@ -54,7 +54,7 @@ export default function Conversations() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([getConversations(), getLabels()])
+    Promise.all([getConversations(1, 100), getLabels()])
       .then(([conversationPage, labelPage]) => {
         if (!active) return;
         setConversations(conversationPage.data);
@@ -74,6 +74,13 @@ export default function Conversations() {
   }, []);
 
   const selectedId = selected?.id_conversa;
+
+  useEffect(() => {
+    if (!focusId || loading) return;
+    const found = conversations.find((conversation) => conversation.id_conversa === focusId);
+    if (found) setSelected(found);
+    onFocusHandled?.();
+  }, [focusId, loading, conversations, onFocusHandled]);
 
   useEffect(() => {
     const query = searchTerm.trim();

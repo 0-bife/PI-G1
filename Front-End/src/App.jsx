@@ -27,11 +27,17 @@ export default function App() {
   const [page, setPage] = useState(null);
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState('');
+  const [focusConversationId, setFocusConversationId] = useState(null);
 
   const navigate = useCallback((next, replace = false) => {
     setPage(next);
     syncUrl(next, replace);
   }, []);
+
+  const openConversation = useCallback((id) => {
+    setFocusConversationId(id);
+    navigate('Conversas');
+  }, [navigate]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -94,14 +100,19 @@ export default function App() {
 
   const screens = {
     Dashboard: <Dashboard onOpenConversations={() => navigate('Conversas')} />,
-    Conversas: <Conversas />,
+    Conversas: <Conversas focusId={focusConversationId} onFocusHandled={() => setFocusConversationId(null)} />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
     Configurações: <Configuracoes user={user} />,
   };
 
   return (
-    <AppShell page={page} setPage={navigate} user={user} onLogout={handleLogout}>
+    <AppShell 
+      page={page} 
+      setPage={navigate} 
+      user={user} 
+      onLogout={handleLogout}
+      onOpenConversation={openConversation}>
       {screens[page]}
     </AppShell>
   );
