@@ -15,6 +15,7 @@ import {
   WhatsAppDeliveryError,
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
+import { ReportService } from './report-service.js';
 import { SettingsService } from './settings-service.js';
 
 function fail(message: string): Error & { status: number } {
@@ -77,6 +78,7 @@ export function createApp(
   const messages = new MessageService(db, whatsappClient, logger);
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
+  const reports = new ReportService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
   const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null, whatsappClient);
   const corsOrigins = new Set(
@@ -678,8 +680,19 @@ export function createApp(
     }
   });
 
-  app.use('/api', createAnalyticsRouter(db));
+   // Relatórios gerais do sistema (acesso exclusivo de administradores).
+  app.get('/api/relatorios', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') {
+      throw new AuthorizationError();
+    }
 
+    const days = positiveInteger(req.query.dias ?? 30, 'dias', 90);
+    const data = await reports.getReport(days);
+
+    return res.json({ data });
+  });
+
+  app.use('/api', createAnalyticsRouter(db));
   app.use((_req: Request, res: Response) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
     const requestError = errorInfo(error);
