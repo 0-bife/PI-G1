@@ -51,6 +51,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const messagesRef = useRef(null);
+  const canCreate = user?.perfil === 'admin';
 
   useEffect(() => {
     let active = true;
