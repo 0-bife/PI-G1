@@ -1,92 +1,117 @@
-import { MessageCircle, Clock, Eye } from 'lucide-react';
+import { useState } from 'react';
+import { Clock, Eye, MessageCircle } from 'lucide-react';
+import { login } from '../api.ts';
 import Logo from '../components/Logo.jsx';
 
-// Login: entrada do protótipo. O botão Entrar leva ao Dashboard.
-export default function Login({ onEnter }) {
-	return (
-		<div className="login-page">
-			<section className="login-panel">
-				<Logo />
+export default function Login({ onLogin, initialError = '' }) {
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [error, setError] = useState(initialError);
+  const [loading, setLoading] = useState(false);
 
-				<div className="login-copy">
-					<span className="eyebrow">BEM-VINDO DE VOLTA</span>
-					<h1>
-						Atendimento que acontece <em>in a blink.</em>
-					</h1>
-					<p>Centralize conversas, clientes e resultados em uma experiência simples.</p>
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const result = await login(email, senha);
+      onLogin(result.user);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
-					<label>
-						E-mail
-						<input type="email" placeholder="voce@empresa.com" />
-					</label>
+  return (
+    <div className="login-page">
+      <section className="login-panel">
+        <Logo />
 
-					<label>
-						Senha
-						<div className="password">
-							<input type="password" placeholder="••••••••" />
-							<Eye size={18} />
-						</div>
-					</label>
+        <form className="login-copy" onSubmit={handleSubmit}>
+          <span className="eyebrow">BEM-VINDO DE VOLTA</span>
+          <h1>Atendimento que acontece <em>in a blink.</em></h1>
+          <p>Centralize conversas, clientes e resultados em uma experiência simples.</p>
 
-					<div className="login-links">
-						<label>
-							<input type="checkbox" /> Lembrar de mim
-						</label>
-						<button>Esqueci minha senha</button>
-					</div>
+          <label>
+            E-mail
+            <input
+              required
+              type="email"
+              placeholder="voce@empresa.com"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
 
-					<button className="primary login-button" onClick={onEnter}>
-						Entrar
-					</button>
+          <label>
+            Senha
+            <div className="password">
+              <input
+                required
+                type="password"
+                placeholder="••••••••"
+                value={senha}
+                onChange={(event) => setSenha(event.target.value)}
+              />
+              <Eye size={18} />
+            </div>
+          </label>
 
-					<p className="signup">
-						Ainda não tem conta? <button>Criar conta</button>
-					</p>
-				</div>
+          <div className="login-links">
+            <label><input type="checkbox" /> Lembrar de mim</label>
+            <button type="button">Esqueci minha senha</button>
+          </div>
 
-				<small className="copyright">© 2026 in a blink. Todos os direitos reservados.</small>
-			</section>
+          {error && <p className="api-error" role="alert">{error}</p>}
 
-			<aside className="login-visual">
-				<div className="visual-card vc1">
-					<MessageCircle />
-					<div>
-						<b>+1.284</b>
-						<span>mensagens hoje</span>
-					</div>
-				</div>
+          <button className="primary login-button" type="submit" disabled={loading}>
+            {loading ? 'Entrando...' : 'Entrar'}
+          </button>
 
-				<div className="visual-phone">
-					<div className="phone-head">
-						<div className="avatar">MS</div>
-						<div>
-							<b>Mariana Souza</b>
-							<span>online</span>
-						</div>
-					</div>
+          <p className="signup">
+            Ainda não tem conta? <button type="button">Criar conta</button>
+          </p>
+        </form>
 
-					<div className="mini-msg left">Olá! Gostaria de conhecer os planos.</div>
-					<div className="mini-msg right">Claro! Vou te ajudar 😊</div>
-					<div className="mini-msg left">Perfeito, obrigada!</div>
-				</div>
+        <small className="copyright">© 2026 in a blink. Todos os direitos reservados.</small>
+      </section>
 
-				<div className="visual-card vc2">
-					<Clock />
-					<div>
-						<b>3m 42s</b>
-						<span>tempo médio</span>
-					</div>
-				</div>
+      <aside className="login-visual">
+        <div className="visual-card vc1">
+          <MessageCircle size={38} />
+          <div>
+            <b>+1.284</b>
+            <span>mensagens hoje</span>
+          </div>
+        </div>
 
-				<div className="visual-title">
-					<span>CONVERSAS QUE FLUEM</span>
-					<h2>
-						Mais proximidade.
-						<br />
-						Menos complicação.
-					</h2>
-				</div>
-			</aside>
-		</div>
-	);
+        <div className="visual-phone">
+          <div className="phone-head">
+            <div className="avatar">MS</div>
+            <div>
+              <b>Mariana Souza</b>
+              <span>online</span>
+            </div>
+          </div>
+          <div className="mini-msg left">Olá! Gostaria de conhecer os planos.</div>
+          <div className="mini-msg right">Claro! Vou te ajudar 😊</div>
+          <div className="mini-msg left">Perfeito, obrigada!</div>
+        </div>
+
+        <div className="visual-card vc2">
+          <Clock />
+          <div>
+            <b>3m 42s</b>
+            <span>tempo médio</span>
+          </div>
+        </div>
+
+        <div className="visual-title">
+          <span>CONVERSAS QUE FLUEM</span>
+          <h2>Mais proximidade.<br />Menos complicação.</h2>
+        </div>
+      </aside>
+    </div>
+  );
 }

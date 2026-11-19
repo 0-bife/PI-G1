@@ -26,6 +26,14 @@ CREATE TABLE USUARIO (
     CONSTRAINT uq_usuario_email UNIQUE (email)
 );
 
+CREATE TABLE CONFIGURACAO (
+    id_configuracao INT NOT NULL PRIMARY KEY,
+    nome_perfil VARCHAR(255) NOT NULL DEFAULT '',
+    email_contato VARCHAR(255) NOT NULL DEFAULT '',
+    fuso_horario VARCHAR(64) NOT NULL DEFAULT 'America/Sao_Paulo',
+    numero_conta VARCHAR(32) NULL
+);
+
 CREATE TABLE AUTH_SESSAO (
     id_sessao BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     jti CHAR(36) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,

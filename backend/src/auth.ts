@@ -322,6 +322,34 @@ export class AuthService {
     );
     return result.affectedRows > 0 || Boolean(await this.getUser(id));
   }
+
+  async resetPassword(targetId: number, newPassword: unknown): Promise<boolean> {
+    if (!validatePassword(newPassword)) {
+      throw new RequestValidationError('A senha nova deve ter entre 12 e 128 caracteres.');
+    }
+    const user = await this.getUser(targetId);
+    if (!user) return false;
+    const connection = await this.db.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute(
+        'UPDATE USUARIO SET hash_senha = ? WHERE id_usuario = ? AND ativo = TRUE',
+        [await hashPassword(newPassword), targetId],
+      );
+      await connection.execute(
+        `UPDATE AUTH_SESSAO SET revogada_em = UTC_TIMESTAMP()
+         WHERE FK_USUARIO_id_usuario = ? AND revogada_em IS NULL`,
+        [targetId],
+      );
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
 }
 
 export { TOKEN_LIFETIME_SECONDS };

@@ -1,86 +1,220 @@
-import { useState } from 'react';
-import { UserRound, Users, Plug, Bot, Tags, Shield, ChevronRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronRight, Bot, Plug, Shield, Tags, UserRound, Users } from 'lucide-react';
 import PageHeading from '../components/PageHeading.jsx';
+import {
+  changePassword,
+  createLabel,
+  createUser,
+  deactivateUser,
+  deleteLabel,
+  getBusinessSettings,
+  getLabels,
+  getUsers,
+  resetUserPassword,
+  updateBusinessSettings,
+  updateLabel,
+  updateUser,
+} from '../api.ts';
 
-// Configurações: navegação por seções e formulário de preferências.
-export default function Configuracoes() {
-	const sections = [
-		['Perfil', UserRound],
-		['Equipe', Users],
-		['Integrações', Plug],
-		['Mensagens automáticas', Bot],
-		['Etiquetas', Tags],
-		['Segurança', Shield],
-	];
+const sections = [
+  ['Perfil', UserRound],
+  ['Equipe', Users],
+  ['Integrações', Plug],
+  ['Mensagens automáticas', Bot],
+  ['Etiquetas', Tags],
+  ['Segurança', Shield],
+];
+const timezones = ['America/Sao_Paulo', 'America/Fortaleza', 'America/Manaus', 'UTC'];
 
-	const [tab, setTab] = useState('Perfil');
+function ActionMessage({ message }) {
+  return message ? <p className="settings-message" role="status">{message}</p> : null;
+}
 
-	return (
-		<>
-			<PageHeading
-				title="Configurações"
-				text="Personalize sua conta, equipe e preferências."
-			/>
+export default function Configuracoes({ user }) {
+  const [tab, setTab] = useState('Perfil');
+  const [message, setMessage] = useState('');
+  const [settings, setSettings] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [labels, setLabels] = useState([]);
+  const [editingLabel, setEditingLabel] = useState(null);
+  const [newLabel, setNewLabel] = useState({ nome: '', cor: '' });
+  const [passwords, setPasswords] = useState({ atual: '', nova: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
-			<div className="settings-layout">
-				<aside className="card settings-nav">
-					{sections.map(([section, Icon]) => (
-						<button
-							className={tab === section ? 'active' : ''}
-							onClick={() => setTab(section)}
-							key={section}
-						>
-							<Icon size={18} />
-							{section}
-							<ChevronRight size={16} />
-						</button>
-					))}
-				</aside>
+  useEffect(() => {
+    setLoadingProfile(true);
+    getBusinessSettings()
+      .then(({ data }) => setSettings(data))
+      .catch((error) => setMessage(error.message))
+      .finally(() => setLoadingProfile(false));
+  }, []);
 
-				<article className="card settings-form">
-					<span className="eyebrow">CONFIGURAÇÕES</span>
-					<h3>{tab}</h3>
-					<p>Gerencie as preferências de {tab.toLowerCase()} da sua empresa.</p>
+  useEffect(() => {
+    if (tab === 'Equipe' || tab === 'Segurança') {
+      getUsers().then(({ data }) => setUsers(data)).catch((error) => setMessage(error.message));
+    }
+    if (tab === 'Etiquetas') {
+      getLabels().then(({ data }) => setLabels(data)).catch((error) => setMessage(error.message));
+    }
+  }, [tab]);
 
-					<div className="form-grid settings-fields">
-						<label>
-							Nome da empresa
-							<input defaultValue="in a blink Demo" />
-						</label>
+  async function saveProfile(event) {
+    event.preventDefault();
+    setSavingProfile(true);
+    setMessage('');
+    try {
+      const result = await updateBusinessSettings(settings);
+      setSettings(result.data);
+      setMessage('Perfil do WhatsApp salvo com sucesso.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
-						<label>
-							E-mail de contato
-							<input defaultValue="contato@inablink.com" />
-						</label>
+  async function savePassword(event) {
+    event.preventDefault();
+    try {
+      await changePassword(passwords.atual, passwords.nova);
+      setPasswords({ atual: '', nova: '' });
+      setMessage('Senha alterada. Entre novamente com a nova senha.');
+    } catch (error) { setMessage(error.message); }
+  }
 
-						<label>
-							Telefone
-							<input defaultValue="+55 (19) 99999-0000" />
-						</label>
+  async function saveLabel(event) {
+    event.preventDefault();
+    try {
+      if (editingLabel) await updateLabel(editingLabel.id_etiqueta, newLabel);
+      else await createLabel(newLabel);
+      setLabels((await getLabels()).data);
+      setEditingLabel(null);
+      setNewLabel({ nome: '', cor: '' });
+      setMessage('Etiqueta salva.');
+    } catch (error) { setMessage(error.message); }
+  }
 
-						<label>
-							Fuso horário
-							<select>
-								<option>Brasília (GMT-3)</option>
-							</select>
-						</label>
+  async function removeLabel(id) {
+    if (!window.confirm('Excluir esta etiqueta? As conversas serão preservadas.')) return;
+    try {
+      await deleteLabel(id);
+      setLabels((await getLabels()).data);
+      setMessage('Etiqueta excluída.');
+    } catch (error) { setMessage(error.message); }
+  }
 
-						<label className="full-span toggle-line">
-							<span>
-								<strong>Notificações da plataforma</strong>
-								<small>Receber alertas importantes da operação.</small>
-							</span>
+  async function saveUser(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      await createUser({
+        nome: String(form.get('nome')),
+        email: String(form.get('email')),
+        senha: String(form.get('senha')),
+        perfil: String(form.get('perfil')),
+      });
+      event.currentTarget.reset();
+      setUsers((await getUsers()).data);
+      setMessage('Usuário adicionado.');
+    } catch (error) { setMessage(error.message); }
+  }
 
-							<span className="switch">
-								<input type="checkbox" defaultChecked />
-								<i />
-							</span>
-						</label>
-					</div>
+  async function editUser(current) {
+    const nome = window.prompt('Nome', current.nome);
+    const email = window.prompt('E-mail', current.email);
+    const perfil = window.prompt('Função (admin ou atendente)', current.perfil);
+    if (!nome || !email || !['admin', 'atendente'].includes(perfil)) return;
+    try {
+      await updateUser(current.id_usuario, { nome, email, perfil });
+      setUsers((await getUsers()).data);
+      setMessage('Usuário alterado.');
+    } catch (error) { setMessage(error.message); }
+  }
 
-					<button className="primary">Salvar alterações</button>
-				</article>
-			</div>
-		</>
-	);
+  async function resetPassword(target) {
+    const nova = window.prompt(`Nova senha para ${target.nome} (mínimo 12 caracteres)`);
+    if (!nova) return;
+    try {
+      await resetUserPassword(target.id_usuario, nova);
+      setMessage('Senha alterada e sessões revogadas.');
+    } catch (error) { setMessage(error.message); }
+  }
+
+  async function removeUser(target) {
+    if (!window.confirm(`Desativar ${target.nome}? O histórico será preservado.`)) return;
+    try {
+      await deactivateUser(target.id_usuario);
+      setUsers((await getUsers()).data);
+      setMessage('Usuário desativado.');
+    } catch (error) { setMessage(error.message); }
+  }
+
+  const admin = user?.perfil === 'admin';
+  return (
+    <>
+      <PageHeading title="Configurações" text="Gerencie perfil, equipe, etiquetas e segurança." />
+      <div className="settings-layout">
+        <aside className="card settings-nav">
+          {sections.map(([section, Icon]) => (
+            <button type="button" className={tab === section ? 'active' : ''} onClick={() => { setTab(section); setMessage(''); }} key={section}>
+              <Icon size={18} />{section}<ChevronRight size={16} />
+            </button>
+          ))}
+        </aside>
+        <article className="card settings-form">
+          <span className="eyebrow">CONFIGURAÇÕES</span>
+          <h3>{tab}</h3>
+          <ActionMessage message={message} />
+
+          {tab === 'Perfil' && loadingProfile && !settings && (
+            <p>Carregando dados do perfil do WhatsApp...</p>
+          )}
+
+          {tab === 'Perfil' && settings && (
+            <form onSubmit={saveProfile}>
+              <div className="form-grid settings-fields">
+                <label>Nome do perfil<input value={settings.nome_perfil} onChange={(e) => setSettings({ ...settings, nome_perfil: e.target.value })} disabled={!admin} /></label>
+                <label>E-mail de contato<input type="email" value={settings.email_contato} onChange={(e) => setSettings({ ...settings, email_contato: e.target.value })} disabled={!admin} /></label>
+                <label>Fuso horário<select value={settings.fuso_horario} onChange={(e) => setSettings({ ...settings, fuso_horario: e.target.value })} disabled={!admin}>{timezones.map((zone) => <option key={zone}>{zone}</option>)}</select></label>
+                <label>Número da conta<input value={settings.numero_conta ?? 'Não informado'} readOnly /></label>
+              </div>
+              {admin && <button className="primary" type="submit" disabled={savingProfile}>{savingProfile ? 'Salvando na Meta...' : 'Salvar alterações'}</button>}
+            </form>
+          )}
+
+          {(tab === 'Integrações' || tab === 'Mensagens automáticas') && <div className="empty-settings"><strong>Em breve!</strong><p>Este recurso estará disponível em uma próxima versão.</p></div>}
+
+          {tab === 'Etiquetas' && (
+            <div className="settings-stack">
+              <form className="inline-form" onSubmit={saveLabel}>
+                <input required placeholder="Nome da etiqueta" value={newLabel.nome} onChange={(e) => setNewLabel({ ...newLabel, nome: e.target.value })} />
+                <input placeholder="Cor (opcional)" value={newLabel.cor} onChange={(e) => setNewLabel({ ...newLabel, cor: e.target.value })} />
+                <button className="primary" type="submit">{editingLabel ? 'Salvar' : 'Adicionar'}</button>
+              </form>
+              {labels.map((label) => <div className="settings-row" key={label.id_etiqueta}><span className="tag" style={{ backgroundColor: label.cor || undefined }}>{label.nome}</span><span><button className="link-btn" type="button" onClick={() => { setEditingLabel(label); setNewLabel({ nome: label.nome, cor: label.cor ?? '' }); }}>Alterar</button><button className="link-btn danger" type="button" onClick={() => removeLabel(label.id_etiqueta)}>Excluir</button></span></div>)}
+            </div>
+          )}
+
+          {tab === 'Equipe' && admin && (
+            <div className="settings-stack">
+              <form className="inline-form user-form" onSubmit={saveUser}>
+                <input name="nome" required placeholder="Nome" /><input name="email" required type="email" placeholder="E-mail" /><select name="perfil" defaultValue="atendente"><option value="atendente">Atendente</option><option value="admin">Admin</option></select><input name="senha" required minLength="12" placeholder="Senha inicial" type="password" /><button className="primary" type="submit">Adicionar</button>
+              </form>
+              {users.map((item) => <div className="settings-row" key={item.id_usuario}><span><strong>{item.nome}</strong><small>{item.email} · {item.perfil} · {item.ativo ? 'ativo' : 'inativo'}</small></span><span><button className="link-btn" type="button" onClick={() => editUser(item)}>Alterar</button>{item.id_usuario !== user.id_usuario && item.ativo && <button className="link-btn danger" type="button" onClick={() => removeUser(item)}>Desativar</button>}</span></div>)}
+            </div>
+          )}
+
+          {tab === 'Equipe' && !admin && <div className="empty-settings"><strong>Acesso restrito</strong><p>Apenas administradores gerenciam a equipe.</p></div>}
+
+          {tab === 'Segurança' && (
+            <div className="settings-stack">
+              <form className="password-form" onSubmit={savePassword}><h4>Alterar minha senha</h4><input required type="password" placeholder="Senha atual" value={passwords.atual} onChange={(e) => setPasswords({ ...passwords, atual: e.target.value })} /><input required minLength="12" type="password" placeholder="Nova senha" value={passwords.nova} onChange={(e) => setPasswords({ ...passwords, nova: e.target.value })} /><button className="primary" type="submit">Alterar senha</button></form>
+              {admin && <><h4>Senhas dos usuários</h4>{users.map((item) => <div className="settings-row" key={item.id_usuario}><span>{item.nome}<small>{item.email}</small></span>{(item.perfil !== 'admin' || item.id_usuario === user.id_usuario) && <button className="link-btn" type="button" onClick={() => resetPassword(item)}>Alterar senha</button>}</div>)}</>}
+            </div>
+          )}
+        </article>
+      </div>
+    </>
+  );
 }

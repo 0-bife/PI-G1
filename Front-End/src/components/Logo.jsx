@@ -9,7 +9,7 @@ export default function Logo() {
 
       <div>
         <strong>in a blink</strong>
-        <small>Business Messaging</small>
+        {/* <small>Business Messaging</small> */}
       </div>
     </div>
   );

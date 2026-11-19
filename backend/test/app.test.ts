@@ -327,6 +327,76 @@ test('conversation list returns latest message, open attendance and active respo
   assert.equal((result.data[0].responsaveis_ativos as unknown[]).length, 1);
 });
 
+test('conversation search returns contact and message targets', async () => {
+  const request = await fixture(async (sql, values) => {
+    if (sql.includes('FROM CONVERSA v')) {
+      assert.deepEqual(values, ['%pedido%', '%pedido%']);
+      return [[{
+        id_conversa: 12,
+        criada_em: '2026-01-01',
+        id_contato: 9,
+        telefone: '+15551234567',
+        nome: 'Maria',
+        email: null,
+        id_atendimento_aberto: null,
+        status_atendimento: null,
+        iniciado_em: null,
+        prazo_retorno: null,
+        ultima_mensagem_em: '2026-01-02 11:00:00',
+      }], []];
+    }
+    if (sql.includes('FROM MENSAGEM m')) {
+      assert.deepEqual(values, ['%pedido%']);
+      return [[{
+        id_mensagem: 88,
+        data_hora: '2026-01-02 11:00:00',
+        conteudo: 'Pedido confirmado',
+        origem: 'contato',
+        status: 'received',
+        tipo: 'text',
+        FK_CONVERSA_id_conversa: 12,
+        nome_usuario: null,
+        id_conversa: 12,
+        contato_nome: 'Maria',
+        contato_telefone: '+15551234567',
+      }], []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  });
+
+  const response = await request('/api/busca/conversas?q=pedido');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    data: {
+      conversas: [{
+        id_conversa: 12,
+        criada_em: '2026-01-01',
+        id_contato: 9,
+        telefone: '+15551234567',
+        nome: 'Maria',
+        email: null,
+        ultima_mensagem_em: '2026-01-02 11:00:00',
+        atendimento_aberto: null,
+      }],
+      mensagens: [{
+        id_mensagem: 88,
+        data_hora: '2026-01-02 11:00:00',
+        conteudo: 'Pedido confirmado',
+        origem: 'contato',
+        status: 'received',
+        tipo: 'text',
+        FK_CONVERSA_id_conversa: 12,
+        nome_usuario: null,
+        conversa: {
+          id_conversa: 12,
+          nome: 'Maria',
+          telefone: '+15551234567',
+        },
+      }],
+    },
+  });
+});
+
 test('conversation creation reuses the unique contact and conversation', async () => {
   const phone = '+15551234567';
   let conversationCreated = false;

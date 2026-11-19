@@ -18,6 +18,25 @@ Configure `.env` com credenciais locais, incluindo `JWT_SECRET` com pelo menos 3
 
 O backend e seus testes são escritos em TypeScript. `npm run dev` executa os fontes com watch; `npm run build` compila os módulos ESM para `dist/`; `npm start` inicia essa compilação. A pasta `dist/` é gerada e não deve ser versionada.
 
+## Configurações e regras de negócio
+
+As rotas autenticadas de configurações são:
+
+| Rota | Regra |
+| --- | --- |
+| `GET /api/configuracoes/perfil` | Retorna nome do perfil, e-mail, fuso horário e o número da conta somente para leitura. |
+| `PATCH /api/configuracoes/perfil` | Somente admin; aceita `nome_perfil`, `email_contato` e `fuso_horario` (identificador IANA). O número da conta não pode ser alterado pela aplicação. |
+| `GET /api/usuarios` | Somente admin; lista usuários sem hashes de senha. |
+| `POST /api/usuarios` | Somente admin; cria usuário com nome, e-mail, perfil e senha inicial. |
+| `PATCH /api/usuarios/:id` | Somente admin; altera nome, e-mail, perfil ou status. |
+| `DELETE /api/usuarios/:id` | Somente admin; desativa a conta (soft delete), preservando mensagens, atendimentos e anotações vinculadas. O próprio admin não pode se desativar. |
+| `PATCH /api/usuarios/:id/password` | Admin altera a própria senha ou a senha de um atendente; outro admin não pode ser redefinido; revoga as sessões do alvo. |
+| `PATCH /api/auth/password` | Qualquer usuário altera a própria senha informando a senha atual; revoga todas as sessões. |
+| `GET/POST/PATCH/DELETE /api/etiquetas...` | Lista, cria, altera e exclui etiquetas. A exclusão remove somente as linhas das tabelas associativas `classifica` e `marca`, nunca conversas ou contatos. |
+
+Integrações e mensagens automáticas permanecem reservadas para uma versão futura. A opção de telefone do perfil é somente informativa: o número da conta não possui rota de alteração.
+Quando a tabela de configurações ainda não tiver uma linha, `WHATSAPP_ACCOUNT_NUMBER` fornece o número exibido como informação de conta; ele nunca é aceito no body de atualização.
+
 ## Autenticação JWT atual
 
 `POST /api/auth/login` emite JWT Bearer assinado com HS256 e validade de 12 horas para usuário ativo. Todas as rotas `/api/*`, exceto login e webhook Meta, exigem `Authorization: Bearer <accessToken>`. Cada requisição valida assinatura/expiração e consulta `AUTH_SESSAO` junto ao estado e perfil atuais do usuário.
@@ -30,7 +49,7 @@ Configure `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha-o fora do 
 
 ### Integração com o frontend
 
-Defina `API_BASE_URL` como a origem da API (`https://api.example.com`) na configuração de ambiente do frontend; não embuta tokens, senhas ou segredos no bundle. Se a interface estiver em outra origem, configure `CORS_ORIGINS` no backend com origens exatas separadas por vírgula, incluindo protocolo e porta quando necessário (por exemplo, `http://localhost:5173,https://front.example.com`). Não use `*`; o backend não usa cookies nem `Access-Control-Allow-Credentials`.
+Defina `VITE_API_BASE_URL` como a origem da API (`https://api.example.com`) no ambiente do Vite; não embuta tokens, senhas ou segredos no bundle. Se a interface estiver em outra origem, configure `CORS_ORIGINS` no backend com origens exatas separadas por vírgula, incluindo protocolo e porta quando necessário (por exemplo, `http://localhost:5173,https://front.example.com`). Não use `*`; o backend não usa cookies nem `Access-Control-Allow-Credentials`.
 
 Centralize autenticação, respostas `204` e erros `401` num cliente HTTP. Exemplo TypeScript independente de framework (a origem deve ser injetada na inicialização da aplicação):
 
@@ -116,7 +135,115 @@ Se a rede falhar, o cliente limpou o token, mas a sessão do servidor não foi r
 
 Fluxo sugerido de telas: `/login` valida credenciais e guarda o token; a área autenticada carrega `/api/conversas?page=1&limit=20`; a seleção de conversa carrega `/api/conversas/:id/mensagens?page=1&limit=20`, responsáveis e etiquetas; envio de texto usa `POST /api/conversas/:id/mensagens`; histórico de entrega usa `/api/mensagens/:id/status`. Exiba anotações de `/api/conversas/:id/anotacoes` em área interna distinta das mensagens WhatsApp. Uma tela de troca de senha autenticada deve exigir senha atual e nova senha. O frontend não deve permitir editar/apagar mensagens nem atribuir autoria via body.
 
-Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. Esta etapa documenta o contrato: `Front-End/` ainda não tem aplicação/telas configuradas e nenhuma UI é criada aqui.
+### Busca de conversas e mensagens
+
+`GET /api/busca/conversas?q=<termo>&limit=50` pesquisa contatos pelo nome/telefone e mensagens pelo conteúdo. A resposta separa os resultados para que a interface possa abrir uma conversa ou navegar diretamente até a mensagem encontrada:
+
+```json
+{
+  "data": {
+    "conversas": [{ "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }],
+    "mensagens": [{
+      "id_mensagem": 88,
+      "conteudo": "Pedido confirmado",
+      "conversa": { "id_conversa": 12, "nome": "Maria", "telefone": "+15551234567" }
+    }]
+  }
+}
+```
+
+O termo `q` é obrigatório e aceita até 255 caracteres. O `limit` aceita de 1 a 100 resultados em cada grupo.
+
+Trate `400` como validação, `401` limpando token e retornando ao login, `403` como perfil sem permissão, `404` como recurso ausente, `409` como conflito de atendimento/associação, `413` como corpo acima do limite, `502` como rejeição Meta e `503` como configuração/dependência indisponível. Origens fora de `CORS_ORIGINS` não recebem permissão CORS no navegador. O backend expõe `Location` por CORS; evite registrar tokens, senhas e conteúdo privado em logs. A implementação das telas e do cliente HTTP está em `Front-End/`; consulte `Front-End/README.md` para configuração e exemplos.
+
+## Relatórios, dashboard e alertas
+
+As três rotas abaixo exigem `Authorization: Bearer <token>`. O middleware valida assinatura, validade e sessão JWT em cada requisição; a identidade e o perfil usados no escopo vêm do banco, nunca de parâmetros enviados pelo cliente. Parâmetros desconhecidos ou repetidos são rejeitados com `400`. Respostas e logs não incluem tokens, hashes de senha ou conteúdo de mensagens.
+
+### `GET /api/relatorios/atendimentos`
+
+Parâmetros obrigatórios `dataInicial` e `dataFinal`, no formato `YYYY-MM-DD`; as duas datas são inclusivas e o intervalo é aplicado à data de início do atendimento. `usuarioId` é opcional para administradores. Para atendentes, um `usuarioId` informado é validado, mas ignorado como escopo: a consulta sempre usa o ID autenticado.
+
+```http
+GET /api/relatorios/atendimentos?dataInicial=2026-10-01&dataFinal=2026-10-31&usuarioId=45
+Authorization: Bearer <token>
+```
+
+Resposta `200` (`data` contém estatísticas por atendente):
+
+```json
+{
+  "data": [
+    {
+      "id": 45,
+      "nome": "Ana",
+      "atendimentosRealizados": 18,
+      "pendentes": 3,
+      "tempoMedioRespostaSegundos": 245.5,
+      "tempoMedioAtendimentoSegundos": 1840,
+      "taxaConclusaoPercentual": 85.71,
+      "slaPercentual": 92.31
+    }
+  ]
+}
+```
+
+O tempo médio de resposta é calculado entre a primeira mensagem do contato e a primeira resposta do atendente no atendimento; o tempo médio de atendimento considera apenas atendimentos encerrados. A taxa de conclusão é a proporção encerrada sobre o total atribuído no intervalo. O SLA considera a primeira resposta até `prazo_retorno`; prazos ainda não vencidos e sem resposta não entram no denominador. Métricas sem amostras retornam `0`.
+
+### `GET /api/dashboard/atendimentos`
+
+Administradores podem filtrar por `usuarioId`; atendentes sempre veem somente os atendimentos atribuídos ao próprio ID, mesmo se tentarem informar outro. Sem filtro de data, os totais e o ranking consideram todo o histórico.
+
+```http
+GET /api/dashboard/atendimentos?usuarioId=45
+Authorization: Bearer <token>
+```
+
+Resposta `200`:
+
+```json
+{
+  "data": {
+    "totais": {
+      "total": 21,
+      "atendimentosRealizados": 18,
+      "pendentes": 3
+    },
+    "ranking": [
+      { "id": 45, "nome": "Ana", "atendimentosRealizados": 18 }
+    ]
+  }
+}
+```
+
+O ranking é ordenado por atendimentos realizados em ordem decrescente, com desempate pelo nome e ID. Totais são contagens distintas de atendimentos; no filtro individual contam atendimentos atribuídos ao usuário.
+
+### `GET /api/alertas/atendimentos`
+
+`minutos` é opcional, padrão `30`, e aceita inteiros de `1` a `10080`. A resposta lista atendimentos abertos cuja última mensagem seja do contato (ou que ainda não tenham mensagens) e esteja há pelo menos esse número de minutos sem resposta. Administradores veem todos; atendentes veem apenas atendimentos com atribuição ativa para si.
+
+```http
+GET /api/alertas/atendimentos?minutos=30
+Authorization: Bearer <token>
+```
+
+Resposta `200`:
+
+```json
+{
+  "data": [
+    {
+      "id_atendimento": 123,
+      "id_conversa": 88,
+      "contato": { "id": 9, "nome": "Cliente", "telefone": "+5511999999999" },
+      "ultimaMensagemEm": "2026-11-04 13:15:00",
+      "minutosSemResposta": 32
+    }
+  ]
+}
+```
+
+`400` indica parâmetros ausentes, inválidos ou adicionais; `401`, token ausente/inválido/revogado; `403`, perfil sem permissão em rotas restritas. Erros internos retornam mensagem genérica e são registrados sem valores de entrada sensíveis.
 
 ## Regras do domínio
 

@@ -8,6 +8,7 @@ import {
 } from './auth.js';
 import { ContactService } from './contact-service.js';
 import { ConversationService } from './conversation-service.js';
+import { createAnalyticsRouter } from './analytics-routes.js';
 import {
   MessageConversationNotFoundError,
   MessageService,
@@ -15,6 +16,7 @@ import {
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { ReportService } from './report-service.js';
+import { SettingsService } from './settings-service.js';
 
 function fail(message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status: 400 });
@@ -78,6 +80,7 @@ export function createApp(
   const conversations = new ConversationService(db);
   const reports = new ReportService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
+  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null, whatsappClient);
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
@@ -158,6 +161,31 @@ export function createApp(
     return res.status(204).end();
   });
 
+  app.get('/api/configuracoes/perfil', async (_req: Request, res: Response) => {
+    return res.json({ data: await settings.get() });
+  });
+  app.patch('/api/configuracoes/perfil', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const body = isRecord(req.body) ? req.body : {};
+    const allowed = ['nome_perfil', 'email_contato', 'fuso_horario'];
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !allowed.includes(key))) {
+      throw new RequestValidationError('Informe nome_perfil, email_contato e/ou fuso_horario.');
+    }
+    try {
+      return res.json({ data: await settings.update({
+        ...(typeof body.nome_perfil === 'string' ? { nome_perfil: body.nome_perfil } : {}),
+        ...(typeof body.email_contato === 'string' ? { email_contato: body.email_contato } : {}),
+        ...(typeof body.fuso_horario === 'string' ? { fuso_horario: body.fuso_horario } : {}),
+      }) });
+    } catch (error) {
+      if (error instanceof Error && typeof (error as unknown as Record<string, unknown>).statusCode === 'number') {
+        return res.status(502).json({ error: 'WhatsApp provider rejected the profile update.' });
+      }
+      if (error instanceof Error) throw new RequestValidationError(error.message);
+      throw error;
+    }
+  });
+
   app.get('/api/usuarios', async (req: Request, res: Response) => {
     if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
@@ -198,6 +226,31 @@ export function createApp(
       email: body.email,
       perfil: body.perfil,
       ativo: body.ativo,
+    });
+    app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
+      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+      const id = positiveInteger(req.params.id, 'id');
+      const body = isRecord(req.body) ? req.body : {};
+      if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
+        throw new RequestValidationError('Informe somente nova_senha.');
+      }
+      const target = await auth.getUser(id);
+      if (!target) return res.status(404).json({ error: 'User not found.' });
+      if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
+        throw new AuthorizationError();
+      }
+      await auth.resetPassword(id, body.nova_senha);
+      return res.status(204).end();
+    });
+    app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
+      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+      const id = positiveInteger(req.params.id, 'id');
+      if (id === req.authenticatedUser.id_usuario) {
+        throw new RequestValidationError('O usuário logado não pode ser desativado.');
+      }
+      const updated = await auth.updateUser(id, { ativo: false });
+      if (!updated) return res.status(404).json({ error: 'User not found.' });
+      return res.status(204).end();
     });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
     return res.status(204).end();
@@ -345,6 +398,15 @@ export function createApp(
     const id = positiveInteger(req.params.id, 'id');
     if (!(await contacts.deleteLabel(id))) return res.status(404).json({ error: 'Label not found.' });
     return res.status(204).end();
+  });
+
+  app.get('/api/busca/conversas', async (req: Request, res: Response) => {
+    const query = req.query.q;
+    const limit = positiveInteger(req.query.limit ?? 50, 'limit', 100);
+    if (typeof query !== 'string' || !query.trim() || [...query.trim()].length > 255) {
+      throw new RequestValidationError('q é obrigatório e deve ter até 255 caracteres.');
+    }
+    return res.json({ data: await conversations.searchConversations(query.trim(), limit) });
   });
 
   app.get('/api/conversas', async (req: Request, res: Response) => {
@@ -618,7 +680,6 @@ export function createApp(
     }
   });
 
-  
    // Relatórios gerais do sistema (acesso exclusivo de administradores).
   app.get('/api/relatorios', async (req: Request, res: Response) => {
     if (req.authenticatedUser?.perfil !== 'admin') {
@@ -631,7 +692,7 @@ export function createApp(
     return res.json({ data });
   });
 
-  
+  app.use('/api', createAnalyticsRouter(db));
   app.use((_req: Request, res: Response) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
     const requestError = errorInfo(error);
