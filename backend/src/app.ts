@@ -13,6 +13,7 @@ import {
   MessageConversationNotFoundError,
   MessageService,
   WhatsAppDeliveryError,
+  assignByRotation
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
 import { ReportService } from './report-service.js';
@@ -114,6 +115,22 @@ export function createApp(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
   if (corsOrigins.has('*')) throw new Error('CORS_ORIGINS must contain explicit origins, not a wildcard.');
+
+  // Garante um atendimento aberto e o entrega ao próximo atendente da fila.
+  // Falhas aqui não derrubam a criação da conversa: só vão para o log.
+  async function autoAssign(conversationId: number): Promise<void> {
+    try {
+      const opened = await conversations.openAttendance(conversationId);
+      let attendanceId: number | null = typeof opened === 'number' ? opened : null;
+      if (opened === 'already-open') {
+        const current = await conversations.getConversation(conversationId);
+        attendanceId = current?.atendimento_aberto?.id_atendimento ?? null;
+      }
+      if (attendanceId !== null) await assignByRotation(db, attendanceId);
+    } catch (error) {
+      logger.error('Automatic assignment failed.', { code: errorInfo(error).code || 'INTERNAL_ERROR' });
+    }
+  }
 
   app.use((req, res, next) => {
     const origin = req.get('origin');
@@ -457,7 +474,10 @@ export function createApp(
     if (Object.keys(body).length !== 1 || !e164(body.telefone)) {
       throw new RequestValidationError('Informe somente telefone no formato E.164.');
     }
-    const { conversation, created } = await conversations.createConversation(body.telefone);
+    let { conversation, created } = await conversations.createConversation(body.telefone);
+    await autoAssign(conversation.id_conversa);
+    const refreshed = await conversations.getConversation(conversation.id_conversa);
+    if (refreshed) conversation = refreshed;
     if (!created) return res.status(200).json({ data: conversation });
     return res.location(`/api/conversas/${conversation.id_conversa}`).status(201).json({ data: conversation });
   });
@@ -726,6 +746,11 @@ export function createApp(
     }
     try {
       const data = await messages.sendText({ phone: telefone, text: conteudo.trim(), userId });
+      try {
+        await assignByRotation(db, data.FK_ATENDIMENTO_id_atendimento);
+      } catch (error) {
+        logger.error('Automatic assignment failed.', { code: errorInfo(error).code || 'INTERNAL_ERROR' });
+      }
       return res.status(202).json({ data });
     } catch (error) {
       if (error instanceof WhatsAppDeliveryError) {
