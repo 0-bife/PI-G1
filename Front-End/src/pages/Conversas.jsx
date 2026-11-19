@@ -31,7 +31,7 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
 }
 
-export default function Conversations({ focusId, onFocusHandled }) {
+export default function Conversations({ user, focusId, onFocusHandled }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [mobileView, setMobileView] = useState('list');
@@ -51,6 +51,7 @@ export default function Conversations({ focusId, onFocusHandled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const messagesRef = useRef(null);
+  const canCreate = user?.perfil === 'admin';
 
   useEffect(() => {
     let active = true;
@@ -279,15 +280,17 @@ export default function Conversations({ focusId, onFocusHandled }) {
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
-          <button
-            className="new-conversation"
-            type="button"
-            onClick={() => setShowCreate((shown) => !shown)}
-            disabled={busy}
-          >
-            <Plus size={16} /> Nova conversa
-          </button>
-          {showCreate && (
+          {canCreate && (
+            <button
+              className="new-conversation"
+              type="button"
+              onClick={() => setShowCreate((shown) => !shown)}
+              disabled={busy}
+            >
+              <Plus size={16} /> Nova conversa
+            </button>
+          )}
+          {canCreate && showCreate && (
             <form className="new-conversation-form" onSubmit={handleCreateConversation}>
               <input
                 required
@@ -347,7 +350,7 @@ export default function Conversations({ focusId, onFocusHandled }) {
             )}
             {!searchTerm.trim() && loading && <p className="empty-state">Carregando conversas...</p>}
             {!searchTerm.trim() && !loading && filteredConversations.length === 0 && (
-              <p className="empty-state">Nenhuma conversa encontrada.</p>
+              <p className="empty-state">{canCreate ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa atribuída a você.'}</p>
             )}
             {!searchTerm.trim() && filteredConversations.map((conversation) => (
               <button
@@ -522,7 +525,10 @@ export default function Conversations({ focusId, onFocusHandled }) {
           </>
         ) : (
           <section className="chat empty-chat">
-            <p>{loading ? 'Carregando conversa...' : 'Selecione uma conversa ou crie uma nova.'}</p>
+            <p>{loading ? 'Carregando conversa...' : canCreate
+                ? 'Selecione uma conversa ou crie uma nova.'
+                : 'Selecione uma conversa.'}
+            </p>
           </section>
         )}
       </div>

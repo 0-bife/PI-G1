@@ -80,7 +80,36 @@ export function createApp(
   const conversations = new ConversationService(db);
   const reports = new ReportService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
-  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null, whatsappClient);
+  const isAdmin = (req: Request) => req.authenticatedUser?.perfil === 'admin';
+  const scopeUserId = (req: Request) => (isAdmin(req) ? undefined : req.authenticatedUser?.id_usuario);
+
+  function notFound(message: string): Error & { status: number } {
+    return Object.assign(new Error(message), { status: 404 });
+  }
+
+  async function assertConversationAccess(req: Request, conversationId: number): Promise<void> {
+    const user = req.authenticatedUser;
+    if (!user) throw new AuthenticationError();
+    if (user.perfil === 'admin') return;
+    if (!(await conversations.userCanAccessConversation(user.id_usuario, conversationId))) {
+      throw notFound('Conversation not found.');
+    }
+  }
+
+  async function assertAttendanceAccess(req: Request, attendanceId: number): Promise<void> {
+    if (isAdmin(req)) return;
+    const conversationId = await conversations.conversationIdOfAttendance(attendanceId);
+    if (conversationId === null) throw notFound('Attendance not found.');
+    await assertConversationAccess(req, conversationId);
+  }
+
+  async function assertAssignmentAccess(req: Request, assignmentId: number): Promise<void> {
+    if (isAdmin(req)) return;
+    const conversationId = await conversations.conversationIdOfAssignment(assignmentId);
+    if (conversationId === null) throw notFound('Assignment not found.');
+    await assertConversationAccess(req, conversationId);
+  }
+  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null);
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
@@ -406,7 +435,7 @@ export function createApp(
     if (typeof query !== 'string' || !query.trim() || [...query.trim()].length > 255) {
       throw new RequestValidationError('q é obrigatório e deve ter até 255 caracteres.');
     }
-    return res.json({ data: await conversations.searchConversations(query.trim(), limit) });
+    return res.json({ data: await conversations.searchConversations(query, limit, scopeUserId(req)) });
   });
 
   app.get('/api/conversas', async (req: Request, res: Response) => {
@@ -418,10 +447,10 @@ export function createApp(
       if (!e164(phone)) throw new RequestValidationError('telefone E.164 inválido.');
       phoneFilter = phone;
     }
-    return res.json(await conversations.listConversations(page, limit, phoneFilter));
+    return res.json(await conversations.listConversations(page, limit, phoneFilter, scopeUserId(req)));
   });
   app.post('/api/conversas', async (req: Request, res: Response) => {
-    if (req.authenticatedUser?.perfil !== 'admin' && req.authenticatedUser?.perfil !== 'atendente') {
+    if (req.authenticatedUser?.perfil !== 'admin') {
       throw new AuthorizationError();
     }
     const body = isRecord(req.body) ? req.body : {};
@@ -435,6 +464,7 @@ export function createApp(
   app.get('/api/conversas/:id', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');
     const data = await conversations.getConversation(id);
+    await assertConversationAccess(req, id);
     if (!data) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json({ data });
   });
@@ -443,6 +473,7 @@ export function createApp(
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
     const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
     const data = await conversations.listAttendances(id, page, limit);
+    await assertConversationAccess(req, id);
     if (!data) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json(data);
   });
@@ -450,6 +481,7 @@ export function createApp(
     if (!req.authenticatedUser) throw new AuthenticationError();
     const id = positiveInteger(req.params.id, 'id');
     const body = isRecord(req.body) ? req.body : {};
+    await assertConversationAccess(req, id);
     if (Object.keys(body).length) throw new RequestValidationError('A abertura do atendimento não recebe campos.');
     const result = await conversations.openAttendance(id);
     if (result === 'not-found') return res.status(404).json({ error: 'Conversation not found.' });
@@ -462,6 +494,7 @@ export function createApp(
     if (!req.authenticatedUser) throw new AuthenticationError();
     const id = positiveInteger(req.params.id, 'id');
     const body = isRecord(req.body) ? req.body : {};
+    await assertAttendanceAccess(req, id);
     if (!Object.keys(body).length || Object.keys(body).some((key) => !['status', 'prazo_retorno'].includes(key))) {
       throw new RequestValidationError('Informe status e/ou prazo_retorno.');
     }
@@ -489,6 +522,7 @@ export function createApp(
   app.get('/api/atendimentos/:id/atribuicoes', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');
     const data = await conversations.listAssignments(id);
+    await assertAttendanceAccess(req, id);
     if (!data) return res.status(404).json({ error: 'Attendance not found.' });
     return res.json({ data });
   });
@@ -496,6 +530,7 @@ export function createApp(
     if (!req.authenticatedUser) throw new AuthenticationError();
     const id = positiveInteger(req.params.id, 'id');
     const body = isRecord(req.body) ? req.body : {};
+    await assertAttendanceAccess(req, id);
     if (Object.keys(body).length !== 1) throw new RequestValidationError('Informe somente usuarioId.');
     const userId = positiveInteger(body.usuarioId, 'usuarioId');
     const result = await conversations.addAssignment(id, userId);
@@ -509,6 +544,7 @@ export function createApp(
   app.delete('/api/atribuicoes/:id', async (req: Request, res: Response) => {
     if (!req.authenticatedUser) throw new AuthenticationError();
     const id = positiveInteger(req.params.id, 'id');
+    await assertAssignmentAccess(req, id);
     if ((await conversations.closeAssignment(id)) === 'not-found') {
       return res.status(404).json({ error: 'Assignment not found.' });
     }
@@ -517,6 +553,7 @@ export function createApp(
   app.get('/api/conversas/:id/etiquetas', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');
     const data = await conversations.listConversationLabels(id);
+    await assertConversationAccess(req, id);
     if (!data) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json({ data });
   });
@@ -524,6 +561,7 @@ export function createApp(
     if (!req.authenticatedUser) throw new AuthenticationError();
     const conversationId = positiveInteger(req.params.id, 'id');
     const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    await assertConversationAccess(req, conversationId);
     const result = await conversations.addConversationLabel(conversationId, labelId);
     if (result === 'missing-conversation') return res.status(404).json({ error: 'Conversation not found.' });
     if (result === 'missing-label') return res.status(404).json({ error: 'Label not found.' });
@@ -533,6 +571,7 @@ export function createApp(
     if (!req.authenticatedUser) throw new AuthenticationError();
     const conversationId = positiveInteger(req.params.id, 'id');
     const labelId = positiveInteger(req.params.etiquetaId, 'etiquetaId');
+    await assertConversationAccess(req, conversationId);
     const result = await conversations.removeConversationLabel(conversationId, labelId);
     if (result === 'missing-conversation') return res.status(404).json({ error: 'Conversation not found.' });
     if (result === 'missing-association') return res.status(404).json({ error: 'Conversation label not found.' });
@@ -582,12 +621,14 @@ export function createApp(
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
     const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
     const result = await messages.listConversationMessages(conversationId, page, limit);
+    await assertConversationAccess(req, conversationId);
     if (!result) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json(result);
   });
   app.post('/api/conversas/:id/mensagens', async (req: Request, res: Response) => {
     const conversationId = positiveInteger(req.params.id, 'id');
     const body = isRecord(req.body) ? req.body : {};
+    await assertConversationAccess(req, conversationId);
     if (Object.keys(body).some((key) => !['tipo', 'conteudo'].includes(key))
       || body.tipo !== 'text'
       || typeof body.conteudo !== 'string'
@@ -620,6 +661,9 @@ export function createApp(
   });
   app.get('/api/mensagens/:id/status', async (req: Request, res: Response) => {
     const id = positiveInteger(req.params.id, 'id');
+    const message = await messages.getMessage(id);
+    if (!message) return res.status(404).json({ error: 'Message not found.' });
+    await assertConversationAccess(req, message.FK_CONVERSA_id_conversa);
     const data = await messages.getMessageStatus(id);
     if (!data) return res.status(404).json({ error: 'Message not found.' });
     return res.json({ data });
@@ -628,6 +672,7 @@ export function createApp(
     const id = positiveInteger(req.params.id, 'id');
     const data = await messages.getMessage(id);
     if (!data) return res.status(404).json({ error: 'Message not found.' });
+    await assertConversationAccess(req, data.FK_CONVERSA_id_conversa);
     return res.json({ data });
   });
   app.get('/api/conversas/:id/anotacoes', async (req: Request, res: Response) => {
@@ -635,12 +680,14 @@ export function createApp(
     const limit = positiveInteger(req.query.limit ?? 20, 'limit', 100);
     const page = positiveInteger(req.query.page ?? 1, 'page', 1000000);
     const data = await messages.listAnnotations(conversationId, page, limit);
+    await assertConversationAccess(req, conversationId);
     if (!data) return res.status(404).json({ error: 'Conversation not found.' });
     return res.json(data);
   });
   app.post('/api/conversas/:id/anotacoes', async (req: Request, res: Response) => {
     const conversationId = positiveInteger(req.params.id, 'id');
     const body = isRecord(req.body) ? req.body : {};
+    await assertConversationAccess(req, conversationId);
     if (Object.keys(body).length !== 1 || typeof body.texto !== 'string'
       || !body.texto.trim() || [...body.texto.trim()].length > 255) {
       throw new RequestValidationError('texto é obrigatório e deve ter até 255 caracteres.');
@@ -653,6 +700,7 @@ export function createApp(
   });
 
   app.post('/api/mensagens/enviar', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
     const body = isRecord(req.body) ? req.body : {};
     const { telefone, tipo, conteudo } = body;
     if (Object.keys(body).some((key) => !['telefone', 'tipo', 'conteudo'].includes(key))
@@ -668,6 +716,14 @@ export function createApp(
     }
     const userId = req.authenticatedUser?.id_usuario;
     if (!userId) throw new AuthenticationError();
+    const sender = req.authenticatedUser;
+    if (!sender) throw new AuthenticationError();
+    if (sender.perfil === 'atendente') {
+      const { conversation } = await conversations.createConversation(telefone);
+      if (!(await conversations.claimConversation(conversation.id_conversa, sender.id_usuario))) {
+        return res.status(409).json({ error: 'Esta conversa já está atribuída a outro atendente.' });
+      }
+    }
     try {
       const data = await messages.sendText({ phone: telefone, text: conteudo.trim(), userId });
       return res.status(202).json({ data });
@@ -703,6 +759,7 @@ export function createApp(
     if (requestError.status === 400) return res.status(400).json({ error: requestError.message });
     if (requestError.status === 401) return res.status(401).json({ error: 'Authentication required.' });
     if (requestError.status === 403) return res.status(403).json({ error: 'Insufficient permissions.' });
+    if (requestError.status === 404) return res.status(404).json({ error: requestError.message });
     if (['ER_DUP_ENTRY', 'ER_ROW_IS_REFERENCED_2', 'ER_NO_REFERENCED_ROW_2'].includes(requestError.code ?? '')) {
       return res.status(409).json({ error: 'Database constraint conflict.' });
     }
