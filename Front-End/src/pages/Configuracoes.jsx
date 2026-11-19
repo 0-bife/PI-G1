@@ -79,13 +79,13 @@ export default function Configuracoes({ user }) {
   }, []);
 
   useEffect(() => {
-    if (tab === 'Equipe' || tab === 'Segurança') {
+    if (tab === 'Equipe' && user?.perfil === 'admin' || tab === 'Segurança') {
       getUsers().then(({ data }) => setUsers(data)).catch((error) => setMessage(error.message));
     }
     if (tab === 'Etiquetas') {
       getLabels().then(({ data }) => setLabels(data)).catch((error) => setMessage(error.message));
     }
-  }, [tab]);
+  }, [tab, user]);
 
   async function saveProfile(event) {
     event.preventDefault();
