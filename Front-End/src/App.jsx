@@ -100,7 +100,7 @@ export default function App() {
 
   const screens = {
     Dashboard: <Dashboard onOpenConversations={() => navigate('Conversas')} />,
-    Conversas: <Conversas focusId={focusConversationId} onFocusHandled={() => setFocusConversationId(null)} />,
+    Conversas: <Conversas user={user} focusId={focusConversationId} onFocusHandled={() => setFocusConversationId(null)} />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,
     Configurações: <Configuracoes user={user} />,
