@@ -268,31 +268,33 @@ export function createApp(
       perfil: body.perfil,
       ativo: body.ativo,
     });
-    app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
-      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
-      const id = positiveInteger(req.params.id, 'id');
-      const body = isRecord(req.body) ? req.body : {};
-      if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
-        throw new RequestValidationError('Informe somente nova_senha.');
-      }
-      const target = await auth.getUser(id);
-      if (!target) return res.status(404).json({ error: 'User not found.' });
-      if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
-        throw new AuthorizationError();
-      }
-      await auth.resetPassword(id, body.nova_senha);
-      return res.status(204).end();
-    });
-    app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
-      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
-      const id = positiveInteger(req.params.id, 'id');
-      if (id === req.authenticatedUser.id_usuario) {
-        throw new RequestValidationError('O usuário logado não pode ser desativado.');
-      }
-      const updated = await auth.updateUser(id, { ativo: false });
-      if (!updated) return res.status(404).json({ error: 'User not found.' });
-      return res.status(204).end();
-    });
+    if (!updated) return res.status(404).json({ error: 'User not found.' });
+    return res.status(204).end();
+  });
+
+  app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
+      throw new RequestValidationError('Informe somente nova_senha.');
+    }
+    const target = await auth.getUser(id);
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+    if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
+      throw new AuthorizationError();
+    }
+    await auth.resetPassword(id, body.nova_senha);
+    return res.status(204).end();
+  });
+
+  app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const id = positiveInteger(req.params.id, 'id');
+    if (id === req.authenticatedUser.id_usuario) {
+      throw new RequestValidationError('O usuário logado não pode ser desativado.');
+    }
+    const updated = await auth.updateUser(id, { ativo: false });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
     return res.status(204).end();
   });
