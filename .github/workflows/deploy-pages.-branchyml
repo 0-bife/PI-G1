@@ -3,7 +3,7 @@ name: Deploy frontend to GitHub Pages
 on:
   push:
     branches:
-      - main
+      - criacao-alerta
     paths:
       - 'Front-End/**'
       - '.github/workflows/deploy-pages.yml'
