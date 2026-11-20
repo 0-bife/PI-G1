@@ -6,7 +6,7 @@ on:
       - criacao-alerta
     paths:
       - 'Front-End/**'
-      - '.github/workflows/deploy-pages.yml'
+      - '.github/workflows/deploy-pages-branch.yml'
   workflow_dispatch:
 
 permissions:
