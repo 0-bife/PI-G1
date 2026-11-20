@@ -96,9 +96,6 @@ export class ApiError extends Error {
 
 function handleUnauthorized(): void {
   sessionStorage.removeItem(ACCESS_TOKEN_KEY);
-  if (window.location.pathname !== '/login') {
-    window.history.replaceState(null, '', '/login');
-  }
   window.dispatchEvent(new Event('inablink:unauthorized'));
 }
 
@@ -294,4 +291,16 @@ export function updateLabel(id: number, input: { nome?: string; cor?: string | n
 
 export function deleteLabel(id: number): Promise<void> {
   return request<void>(`/api/etiquetas/${id}`, { method: 'DELETE' });
+}
+
+export interface PendingAlert {
+  id_atendimento: number;
+  id_conversa: number;
+  contato: { id: number; nome: string | null; telefone: string };
+  ultimaMensagemEm: string | null;
+  minutosSemResposta: number;
+}
+
+export function getPendingAlerts(minutos = 1): Promise<{ data: PendingAlert[] }> {
+  return request<{ data: PendingAlert[] }>(`/api/alertas/atendimentos?minutos=${minutos}`);
 }

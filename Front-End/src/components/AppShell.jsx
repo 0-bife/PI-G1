@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import NotificationBell from "./NotificationBell.jsx";
 import {
   LayoutDashboard,
   MessageCircle,
@@ -6,7 +7,6 @@ import {
   BarChart3,
   Settings,
   Search,
-  Bell,
   MoreHorizontal,
   LogOut,
   Menu,
@@ -28,7 +28,8 @@ const navItems = [
 ];
 
 // Estrutura fixa compartilhada pelas páginas: sidebar + topbar + conteúdo.
-export default function AppShell({ page, setPage, user, onLogout, children }) {
+export default function AppShell({ page, setPage, user, onLogout, onOpenConversation, children }) {
+  const [pending, setPending] = useState(0);
   const [isPinned, setIsPinned] = useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
@@ -106,7 +107,7 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
             >
               <Icon size={19} />
               <span>{label}</span>
-              {label === "Conversas" && <b className="nav-badge">3</b>}
+              {label === "Conversas" && pending > 0 && <b className="nav-badge">{pending}</b>}
             </button>
           ))}
         </nav>
@@ -157,10 +158,7 @@ export default function AppShell({ page, setPage, user, onLogout, children }) {
             </div>
           </div>
           <div className="top-actions">
-            <button className="icon-btn notification">
-              <Bell size={19} />
-              <i />
-            </button>
+            <NotificationBell onOpenConversation={onOpenConversation} onCountChange={setPending} />
           </div>
         </header>
         <section className="page-content">{children}</section>

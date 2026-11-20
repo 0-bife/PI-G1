@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { labelStyle } from '../labelColors.js';
 import {
   ArrowLeft,
   Building2,
@@ -30,7 +31,7 @@ function displayDate(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR');
 }
 
-export default function Conversations() {
+export default function Conversations({ user, focusId, onFocusHandled }) {
   const [conversations, setConversations] = useState([]);
   const [selected, setSelected] = useState(null);
   const [mobileView, setMobileView] = useState('list');
@@ -50,10 +51,11 @@ export default function Conversations() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const messagesRef = useRef(null);
+  const canCreate = user?.perfil === 'admin';
 
   useEffect(() => {
     let active = true;
-    Promise.all([getConversations(), getLabels()])
+    Promise.all([getConversations(1, 100), getLabels()])
       .then(([conversationPage, labelPage]) => {
         if (!active) return;
         setConversations(conversationPage.data);
@@ -73,6 +75,13 @@ export default function Conversations() {
   }, []);
 
   const selectedId = selected?.id_conversa;
+
+  useEffect(() => {
+    if (!focusId || loading) return;
+    const found = conversations.find((conversation) => conversation.id_conversa === focusId);
+    if (found) setSelected(found);
+    onFocusHandled?.();
+  }, [focusId, loading, conversations, onFocusHandled]);
 
   useEffect(() => {
     const query = searchTerm.trim();
@@ -271,15 +280,17 @@ export default function Conversations() {
               onChange={(event) => setSearchTerm(event.target.value)}
             />
           </div>
-          <button
-            className="new-conversation"
-            type="button"
-            onClick={() => setShowCreate((shown) => !shown)}
-            disabled={busy}
-          >
-            <Plus size={16} /> Nova conversa
-          </button>
-          {showCreate && (
+          {canCreate && (
+            <button
+              className="new-conversation"
+              type="button"
+              onClick={() => setShowCreate((shown) => !shown)}
+              disabled={busy}
+            >
+              <Plus size={16} /> Nova conversa
+            </button>
+          )}
+          {canCreate && showCreate && (
             <form className="new-conversation-form" onSubmit={handleCreateConversation}>
               <input
                 required
@@ -339,7 +350,7 @@ export default function Conversations() {
             )}
             {!searchTerm.trim() && loading && <p className="empty-state">Carregando conversas...</p>}
             {!searchTerm.trim() && !loading && filteredConversations.length === 0 && (
-              <p className="empty-state">Nenhuma conversa encontrada.</p>
+              <p className="empty-state">{canCreate ? 'Nenhuma conversa encontrada.' : 'Nenhuma conversa atribuída a você.'}</p>
             )}
             {!searchTerm.trim() && filteredConversations.map((conversation) => (
               <button
@@ -464,7 +475,7 @@ export default function Conversations() {
                 <h4>Etiquetas</h4>
                 <div className="tags">
                   {conversationLabels.map((label) => (
-                    <span className="tag" key={label.id_etiqueta}>{label.nome}</span>
+                    <span className="tag" key={label.id_etiqueta} style={labelStyle(label.cor)}>{label.nome}</span>
                   ))}
                 </div>
                 <label className="label-select">
@@ -514,7 +525,10 @@ export default function Conversations() {
           </>
         ) : (
           <section className="chat empty-chat">
-            <p>{loading ? 'Carregando conversa...' : 'Selecione uma conversa ou crie uma nova.'}</p>
+            <p>{loading ? 'Carregando conversa...' : canCreate
+                ? 'Selecione uma conversa ou crie uma nova.'
+                : 'Selecione uma conversa.'}
+            </p>
           </section>
         )}
       </div>

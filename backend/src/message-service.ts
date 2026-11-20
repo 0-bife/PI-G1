@@ -104,6 +104,69 @@ async function ensureOpenAttendance(connection: PoolConnection, conversationId: 
   return result.insertId;
 }
 
+// Responsável ativo = atribuição aberta de um usuário que ainda está ativo.
+const ACTIVE_RESPONSIBLE_SQL = `
+  SELECT 1 FROM ATRIBUICAO r
+  JOIN USUARIO u ON u.id_usuario = r.FK_USUARIO_id_usuario
+  WHERE r.FK_ATENDIMENTO_id_atendimento = ?
+    AND r.encerrada_em IS NULL AND u.ativo = TRUE
+  LIMIT 1`;
+
+/**
+ * Rodízio automático: atribui o atendimento ao atendente ativo cuja última
+ * atribuição é a mais antiga (ou que nunca recebeu). Retorna o id do usuário
+ * escolhido, ou null se não havia nada a fazer.
+ */
+export async function assignByRotation(db: Pool, attendanceId: number): Promise<number | null> {
+  // Verificação barata fora da transação: o caso comum é já haver responsável.
+  const [quick] = await db.execute<RowDataPacket[]>(ACTIVE_RESPONSIBLE_SQL, [attendanceId]);
+  if (quick.length) return null;
+
+  return inTransaction(db, async (connection) => {
+    // Todas as leituras abaixo, até a escolha, são com bloqueio (FOR UPDATE),
+    // então leem o estado mais recente e o snapshot só nasce depois do bloqueio.
+    const [attendance] = await connection.execute<RowDataPacket[]>(
+      `SELECT id_atendimento FROM ATENDIMENTO
+       WHERE id_atendimento = ? AND encerrado_em IS NULL FOR UPDATE`,
+      [attendanceId],
+    );
+    if (!attendance.length) return null;
+
+    const [alreadyAssigned] = await connection.execute<RowDataPacket[]>(
+      `${ACTIVE_RESPONSIBLE_SQL} FOR UPDATE`,
+      [attendanceId],
+    );
+    if (alreadyAssigned.length) return null;
+
+    // Bloqueia os elegíveis em ordem fixa: só um rodízio decide por vez.
+    const [eligible] = await connection.execute<RowDataPacket[]>(
+      `SELECT id_usuario FROM USUARIO
+       WHERE perfil = 'atendente' AND ativo = TRUE
+       ORDER BY id_usuario FOR UPDATE`,
+    );
+    if (!eligible.length) return null;
+
+    // O id da atribuição só cresce e não empata, ao contrário do timestamp.
+    const [next] = await connection.execute<RowDataPacket[]>(
+      `SELECT u.id_usuario,
+              (SELECT MAX(a.id_atribuicao) FROM ATRIBUICAO a
+               WHERE a.FK_USUARIO_id_usuario = u.id_usuario) AS ultima
+       FROM USUARIO u
+       WHERE u.perfil = 'atendente' AND u.ativo = TRUE
+       ORDER BY COALESCE(ultima, 0) ASC, u.id_usuario ASC
+       LIMIT 1`,
+    );
+    const userId = Number(next[0].id_usuario);
+    await connection.execute(
+      `INSERT INTO ATRIBUICAO
+         (iniciada_em, encerrada_em, FK_USUARIO_id_usuario, FK_ATENDIMENTO_id_atendimento)
+       VALUES (UTC_TIMESTAMP(), NULL, ?, ?)`,
+      [userId, attendanceId],
+    );
+    return userId;
+  });
+}
+
 async function insertStatusHistory(
   connection: PoolConnection,
   messageId: number,
@@ -479,8 +542,9 @@ export class MessageService {
       throw Object.assign(new Error('Invalid WhatsApp webhook payload.'), { status: 400 });
     }
     const entries: unknown[] = payload.entry;
+    const needsRotation = new Set<number>();
 
-    return inTransaction(this.db, async (connection) => {
+    const result = await inTransaction(this.db, async (connection) => {
       let messagesProcessed = 0;
       let statusesProcessed = 0;
 
@@ -546,7 +610,7 @@ export class MessageService {
             );
             if (existing.length) continue;
 
-            await ensureOpenAttendance(connection, conversationId);
+            const attendanceId = Number(await ensureOpenAttendance(connection, conversationId));
             const { content, mediaReference } = extractMessageContent(message);
             const occurredAt = mysqlDateTime(fromMetaTimestamp(message.timestamp));
             try {
@@ -566,6 +630,7 @@ export class MessageService {
               );
               await insertStatusHistory(connection, result.insertId, 'received', occurredAt);
               messagesProcessed++;
+              needsRotation.add(attendanceId);
             } catch (error) {
               if (!isDuplicateEntry(error)) throw error;
             }
@@ -620,5 +685,24 @@ export class MessageService {
 
       return { messagesProcessed, statusesProcessed };
     });
+    
+    const assignedAttendances: Array<{ attendanceId: number; userId: number | null }> = [];
+    for (const attendanceId of needsRotation) {
+      try {
+        const assignedUserId = await assignByRotation(this.db, attendanceId);
+        console.info('[rodizio]', { attendanceId, assignedUserId });
+        assignedAttendances.push({ attendanceId, userId: assignedUserId });
+      } catch (error) {
+        this.logger.error('Automatic assignment failed.', {
+          attendanceId,
+          code: isRecord(error) && typeof error.code === 'string' ? error.code : 'INTERNAL_ERROR',
+        });
+      }
+    }
+
+    return {
+      ...result,
+      assignedAttendances,
+    };
   }
 }

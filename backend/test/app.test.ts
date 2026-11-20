@@ -29,6 +29,7 @@ interface TestRequestOptions extends Omit<RequestInit, 'headers'> {
 async function fixture(
   execute: (sql: string, values?: unknown[]) => Promise<unknown>,
   corsOrigins = '',
+  perfil: 'admin' | 'atendente' = 'admin',
 ) {
   const token = await new SignJWT({ jti: 'test-session-id' })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
@@ -43,9 +44,9 @@ async function fixture(
       if (sql.includes('FROM AUTH_SESSAO')) {
         return [[{
           id_usuario: 1,
-          nome: 'Admin',
-          email: 'admin@example.com',
-          perfil: 'admin',
+          nome: 'Usuário',
+          email: 'user@example.com',
+          perfil,
           ativo: true,
         }], []];
       }
@@ -703,4 +704,16 @@ test('database errors do not expose SQL or credentials', async () => {
   const response = await request('/api/contatos');
   assert.equal(response.status, 500);
   assert.deepEqual(await response.json(), { error: 'Internal server error.' });
+});
+
+test('atendente não pode iniciar conversa nem enviar para número novo', async () => {
+  let calls = 0;
+  const request = await fixture(async () => { calls++; return [[], []]; }, '', 'atendente');
+  const conversation = await request('/api/conversas', json({ telefone: '+15551234567' }));
+  expect(conversation.status).toBe(403);
+  const send = await request('/api/mensagens/enviar', json({
+    telefone: '+15551234567', tipo: 'text', conteudo: 'oi',
+  }));
+  expect(send.status).toBe(403);
+  expect(calls).toBe(0);
 });

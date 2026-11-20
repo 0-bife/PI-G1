@@ -107,6 +107,19 @@ const conversationSelect = `
     ORDER BY recente.data_hora DESC, recente.id_mensagem DESC LIMIT 1
   )`;
 
+// Conversa visível ao atendente: atribuição ativa no atendimento aberto (alias "a").
+const VISIBLE_TO_USER = `EXISTS (
+  SELECT 1 FROM ATRIBUICAO vis
+  WHERE vis.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
+    AND vis.FK_USUARIO_id_usuario = ? AND vis.encerrada_em IS NULL)`;
+
+// Mesma regra para consultas que partem da conversa (alias "v").
+const CONVERSATION_VISIBLE_TO_USER = `EXISTS (
+  SELECT 1 FROM ATENDIMENTO ab
+  JOIN ATRIBUICAO ar ON ar.FK_ATENDIMENTO_id_atendimento = ab.id_atendimento
+  WHERE ab.FK_CONVERSA_id_conversa = v.id_conversa AND ab.encerrado_em IS NULL
+    AND ar.FK_USUARIO_id_usuario = ? AND ar.encerrada_em IS NULL)`;
+
 function withAssignments<T extends ConversationRow | AttendanceRow>(
   rows: T[],
   assignments: AssignmentRow[],
@@ -165,14 +178,19 @@ export class ConversationService {
     page: number,
     limit: number,
     phone?: string,
+    userId?: number,
   ): Promise<{ data: object[]; page: number; limit: number }> {
     const offset = (page - 1) * limit;
-    const where = phone ? 'WHERE c.telefone = ?' : '';
+    const conditions: string[] = [];
+    const values: (string | number)[] = [];
+    if (phone) { conditions.push('c.telefone = ?'); values.push(phone); }
+    if (userId !== undefined) { conditions.push(VISIBLE_TO_USER); values.push(userId); }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [rows] = await this.db.execute<ConversationRow[]>(
       `${conversationSelect} ${where}
-       ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
-       LIMIT ${limit} OFFSET ${offset}`,
-      phone ? [phone] : [],
+      ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
+      LIMIT ${limit} OFFSET ${offset}`,
+      values,
     );
     const attendanceIds = rows
       .map((row) => row.id_atendimento_aberto)
@@ -183,17 +201,21 @@ export class ConversationService {
     return { data: withAssignments(rows, assignments, 'id_atendimento_aberto'), page, limit };
   }
 
-  async searchConversations(query: string, limit: number): Promise<{
+  async searchConversations(query: string, limit: number, userId?: number): Promise<{
     conversas: object[];
     mensagens: object[];
   }> {
     const term = `%${query}%`;
+    const scope = userId === undefined ? '' : `AND ${VISIBLE_TO_USER}`;
+    const messageScope = userId === undefined ? '' : `AND ${CONVERSATION_VISIBLE_TO_USER}`;
+    const extra = userId === undefined ? [] : [userId];
     const [conversationRows] = await this.db.execute<ConversationRow[]>(
       `${conversationSelect}
        WHERE c.nome LIKE ? OR c.telefone LIKE ?
+       ${scope}
        ORDER BY COALESCE(ultima.data_hora, v.criada_em) DESC, v.id_conversa DESC
        LIMIT ${limit}`,
-      [term, term],
+      [term, term, ...extra],
     );
     const [messageRows] = await this.db.execute<RowDataPacket[]>(
       `SELECT m.id_mensagem, m.data_hora, m.conteudo, m.origem, m.status, m.tipo,
@@ -206,7 +228,7 @@ export class ConversationService {
        WHERE m.conteudo LIKE ?
        ORDER BY m.data_hora DESC, m.id_mensagem DESC
        LIMIT ${limit}`,
-      [term],
+      [term, ...extra],
     );
 
     return {
@@ -536,5 +558,81 @@ export class ConversationService {
       [conversationId],
     );
     return conversations.length ? 'missing-association' : 'missing-conversation';
+  }
+
+  async userCanAccessConversation(userId: number, conversationId: number): Promise<boolean> {
+    const [rows] = await this.db.execute<RowDataPacket[]>(
+      `SELECT 1 FROM ATENDIMENTO a
+      JOIN ATRIBUICAO r ON r.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
+      WHERE a.FK_CONVERSA_id_conversa = ? AND a.encerrado_em IS NULL
+        AND r.FK_USUARIO_id_usuario = ? AND r.encerrada_em IS NULL
+      LIMIT 1`,
+      [conversationId, userId],
+    );
+    return rows.length > 0;
+  }
+
+  async conversationIdOfAttendance(attendanceId: number): Promise<number | null> {
+    const [rows] = await this.db.execute<RowDataPacket[]>(
+      'SELECT FK_CONVERSA_id_conversa AS id FROM ATENDIMENTO WHERE id_atendimento = ? LIMIT 1',
+      [attendanceId],
+    );
+    return rows.length ? Number(rows[0].id) : null;
+  }
+
+  async conversationIdOfAssignment(assignmentId: number): Promise<number | null> {
+    const [rows] = await this.db.execute<RowDataPacket[]>(
+      `SELECT a.FK_CONVERSA_id_conversa AS id
+      FROM ATRIBUICAO r JOIN ATENDIMENTO a ON a.id_atendimento = r.FK_ATENDIMENTO_id_atendimento
+      WHERE r.id_atribuicao = ? LIMIT 1`,
+      [assignmentId],
+    );
+    return rows.length ? Number(rows[0].id) : null;
+  }
+
+  /**
+   * Garante um atendimento aberto e, se ninguém é responsável, atribui ao usuário.
+   * Retorna false se outro atendente já é o responsável.
+   */
+  async claimConversation(conversationId: number, userId: number): Promise<boolean> {
+    return inTransaction(this.db, async (connection) => {
+      await connection.execute(
+        'SELECT id_conversa FROM CONVERSA WHERE id_conversa = ? FOR UPDATE',
+        [conversationId],
+      );
+      const [open] = await connection.execute<RowDataPacket[]>(
+        `SELECT id_atendimento FROM ATENDIMENTO
+        WHERE FK_CONVERSA_id_conversa = ? AND encerrado_em IS NULL
+        ORDER BY id_atendimento DESC LIMIT 1 FOR UPDATE`,
+        [conversationId],
+      );
+      let attendanceId: number;
+      if (open.length) {
+        attendanceId = Number(open[0].id_atendimento);
+      } else {
+        const [created] = await connection.execute<ResultSetHeader>(
+          `INSERT INTO ATENDIMENTO (status, encerrado_em, iniciado_em, FK_CONVERSA_id_conversa)
+          VALUES ('open', NULL, UTC_TIMESTAMP(), ?)`,
+          [conversationId],
+        );
+        attendanceId = created.insertId;
+      }
+      const [active] = await connection.execute<RowDataPacket[]>(
+        `SELECT r.FK_USUARIO_id_usuario FROM ATRIBUICAO r
+        JOIN USUARIO u ON u.id_usuario = r.FK_USUARIO_id_usuario
+        WHERE r.FK_ATENDIMENTO_id_atendimento = ? AND r.encerrada_em IS NULL AND u.ativo = TRUE
+        FOR UPDATE`,
+        [attendanceId],
+      );
+      if (active.some((row) => Number(row.FK_USUARIO_id_usuario) === userId)) return true;
+      if (active.length) return false;
+      await connection.execute(
+        `INSERT INTO ATRIBUICAO
+          (iniciada_em, encerrada_em, FK_USUARIO_id_usuario, FK_ATENDIMENTO_id_atendimento)
+        VALUES (UTC_TIMESTAMP(), NULL, ?, ?)`,
+        [userId, attendanceId],
+      );
+      return true;
+    });
   }
 }
