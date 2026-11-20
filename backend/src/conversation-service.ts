@@ -618,7 +618,7 @@ export class ConversationService {
         attendanceId = created.insertId;
       }
       const [active] = await connection.execute<RowDataPacket[]>(
-        `SELECT r.FK_USUARIO_id_usuario FROM ATRIBUICAO rhttps://www.tiktok.com/@molleculeee/video/7709726866873093383
+        `SELECT r.FK_USUARIO_id_usuario FROM ATRIBUICAO r
         JOIN USUARIO u ON u.id_usuario = r.FK_USUARIO_id_usuario
         WHERE r.FK_ATENDIMENTO_id_atendimento = ? AND r.encerrada_em IS NULL AND u.ativo = TRUE
         FOR UPDATE`,

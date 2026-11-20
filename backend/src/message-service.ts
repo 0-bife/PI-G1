@@ -610,7 +610,7 @@ export class MessageService {
             );
             if (existing.length) continue;
 
-            const attendanceId = await ensureOpenAttendance(connection, conversationId);
+            const attendanceId = Number(await ensureOpenAttendance(connection, conversationId));
             const { content, mediaReference } = extractMessageContent(message);
             const occurredAt = mysqlDateTime(fromMetaTimestamp(message.timestamp));
             try {
@@ -686,16 +686,23 @@ export class MessageService {
       return { messagesProcessed, statusesProcessed };
     });
     
+    const assignedAttendances: Array<{ attendanceId: number; userId: number | null }> = [];
     for (const attendanceId of needsRotation) {
       try {
-        await assignByRotation(this.db, attendanceId);
+        const assignedUserId = await assignByRotation(this.db, attendanceId);
+        console.info('[rodizio]', { attendanceId, assignedUserId });
+        assignedAttendances.push({ attendanceId, userId: assignedUserId });
       } catch (error) {
-        // A mensagem já está salva; não pede reenvio à Meta por causa do rodízio.
         this.logger.error('Automatic assignment failed.', {
+          attendanceId,
           code: isRecord(error) && typeof error.code === 'string' ? error.code : 'INTERNAL_ERROR',
         });
       }
     }
-    return result;
+
+    return {
+      ...result,
+      assignedAttendances,
+    };
   }
 }
