@@ -18,7 +18,7 @@ Pequenas empresas usam o WhatsApp como principal canal de comunicação com os c
 - **Contatos e etiquetas**, com identificação do contato pelo telefone (E.164).
 - **Notas internas** por conversa, nunca enviadas ao WhatsApp.
 - **Histórico de status das mensagens:** enviada, entregue, lida ou falha.
-- **Relatórios, dashboard e alertas:** tempo de resposta, taxa de conclusão, SLA, ranking de atendentes e conversas sem resposta.
+- **Relatórios, dashboard (admin) e alertas:** tempo médio de resposta (após mensagem automática inicial), tempo médio de atendimento, conversas totais e ativas com filtros por usuário, período e etiqueta, gráficos de seção de círculo, taxa de conclusão, SLA, ranking de atendentes e conversas sem resposta.
 
 ## Tecnologias
 

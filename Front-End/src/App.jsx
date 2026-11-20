@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AppShell from './components/AppShell.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -19,8 +19,13 @@ function syncUrl(page, replace = false) {
 }
 
 // Login não é destino válido para quem já está autenticado.
-function authenticatedTarget(requested) {
-  return requested && requested !== 'Login' ? requested : 'Dashboard';
+// Dashboard é exclusivo para administradores; atendentes caem em Conversas.
+function authenticatedTarget(requested, currentUser) {
+  const isAdmin = currentUser?.perfil === 'admin';
+  const fallback = isAdmin ? 'Dashboard' : 'Conversas';
+  if (!requested || requested === 'Login') return fallback;
+  if (requested === 'Dashboard' && !isAdmin) return 'Conversas';
+  return requested;
 }
 
 export default function App() {
@@ -28,10 +33,15 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState('');
   const [focusConversationId, setFocusConversationId] = useState(null);
+  const userRef = useRef(null);
+  userRef.current = user;
 
   const navigate = useCallback((next, replace = false) => {
-    setPage(next);
-    syncUrl(next, replace);
+    const target = next === 'Dashboard' && userRef.current && userRef.current.perfil !== 'admin'
+      ? 'Conversas'
+      : next;
+    setPage(target);
+    syncUrl(target, replace);
   }, []);
 
   const openConversation = useCallback((id) => {
@@ -52,7 +62,7 @@ export default function App() {
         navigate('Login', true);
         return;
       }
-      navigate(authenticatedTarget(pageFromPath(window.location.pathname)), true);
+      navigate(authenticatedTarget(pageFromPath(window.location.pathname), userRef.current), true);
     };
 
     window.addEventListener('inablink:unauthorized', handleUnauthorized);
@@ -63,8 +73,9 @@ export default function App() {
     if (sessionStorage.getItem(TOKEN_KEY)) {
       checkMe()
         .then((currentUser) => {
+          userRef.current = currentUser;
           setUser(currentUser);
-          navigate(authenticatedTarget(requested), true);
+          navigate(authenticatedTarget(requested, currentUser), true);
         })
         .catch(() => navigate('Login', true));
     } else {
@@ -79,8 +90,9 @@ export default function App() {
 
   const handleLogin = (authenticatedUser) => {
     setAuthError('');
+    userRef.current = authenticatedUser;
     setUser(authenticatedUser);
-    navigate('Dashboard');
+    navigate(authenticatedUser.perfil === 'admin' ? 'Dashboard' : 'Conversas');
   };
 
   async function handleLogout() {
@@ -99,7 +111,7 @@ export default function App() {
   if (page === 'Login') return <Login onLogin={handleLogin} initialError={authError} />;
 
   const screens = {
-    Dashboard: <Dashboard onOpenConversations={() => navigate('Conversas')} />,
+    Dashboard: <Dashboard user={user} onOpenConversations={() => navigate('Conversas')} />,
     Conversas: <Conversas user={user} focusId={focusConversationId} onFocusHandled={() => setFocusConversationId(null)} />,
     Contatos: <Contatos />,
     Relatórios: <Relatorios />,

@@ -364,3 +364,37 @@ export interface PendingAlert {
 export function getPendingAlerts(minutos = 1): Promise<{ data: PendingAlert[] }> {
   return request<{ data: PendingAlert[] }>(`/api/alertas/atendimentos?minutos=${minutos}`);
 }
+
+export interface DashboardFilters {
+  usuarioId?: number;
+  dataInicial?: string;
+  dataFinal?: string;
+  etiquetaId?: number;
+}
+
+export interface DashboardMetrics {
+  totais: {
+    total: number;
+    conversasTotais: number;
+    conversasAtivas: number;
+    atendimentosRealizados: number;
+    pendentes: number;
+    tempoMedioAtendimentoSegundos: number;
+    tempoMedioRespostaSegundos: number;
+  };
+  ranking: Array<{
+    id: number;
+    nome: string;
+    atendimentosRealizados: number;
+  }>;
+}
+
+export function getDashboardMetrics(filters: DashboardFilters = {}): Promise<{ data: DashboardMetrics }> {
+  const params = new URLSearchParams();
+  if (filters.usuarioId) params.set('usuarioId', String(filters.usuarioId));
+  if (filters.dataInicial) params.set('dataInicial', filters.dataInicial);
+  if (filters.dataFinal) params.set('dataFinal', filters.dataFinal);
+  if (filters.etiquetaId) params.set('etiquetaId', String(filters.etiquetaId));
+  const qs = params.toString();
+  return request<{ data: DashboardMetrics }>(`/api/dashboard/atendimentos${qs ? `?${qs}` : ''}`);
+}

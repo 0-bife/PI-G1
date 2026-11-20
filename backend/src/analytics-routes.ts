@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import type { Pool } from 'mysql2/promise';
 import {
   AuthenticationError,
+  AuthorizationError,
   RequestValidationError,
 } from './auth.js';
 import { AnalyticsService } from './analytics-service.js';
@@ -24,12 +25,16 @@ function allowQueryKeys(req: Request, allowed: string[]): void {
   }
 }
 
-function parseUserId(value: string | undefined): number | undefined {
+function parsePositiveId(value: string | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
   if (!/^[1-9]\d*$/.test(value) || Number(value) > 2147483647) {
-    throw new RequestValidationError('usuarioId must be a positive integer.');
+    throw new RequestValidationError(`${name} must be a positive integer.`);
   }
   return Number(value);
+}
+
+function parseUserId(value: string | undefined): number | undefined {
+  return parsePositiveId(value, 'usuarioId');
 }
 
 function parseDate(value: string | undefined, name: string): string {
@@ -43,6 +48,11 @@ function parseDate(value: string | undefined, name: string): string {
     throw new RequestValidationError(`${name} must be a valid calendar date.`);
   }
   return value;
+}
+
+function parseOptionalDate(value: string | undefined, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  return parseDate(value, name);
 }
 
 function authenticatedUser(req: Request) {
@@ -78,11 +88,26 @@ export function createAnalyticsRouter(db: Pool): Router {
   });
 
   router.get('/dashboard/atendimentos', async (req, res) => {
-    allowQueryKeys(req, ['usuarioId']);
+    allowQueryKeys(req, ['usuarioId', 'dataInicial', 'dataFinal', 'etiquetaId']);
     const user = authenticatedUser(req);
-    const requestedUserId = parseUserId(queryValue(req, 'usuarioId'));
-    const usuarioId = user.perfil === 'admin' ? requestedUserId : user.id_usuario;
-    return res.json({ data: await analytics.attendanceDashboard(usuarioId) });
+    if (user.perfil !== 'admin') throw new AuthorizationError();
+
+    const usuarioId = parseUserId(queryValue(req, 'usuarioId'));
+    const dataInicial = parseOptionalDate(queryValue(req, 'dataInicial'), 'dataInicial');
+    const dataFinal = parseOptionalDate(queryValue(req, 'dataFinal'), 'dataFinal');
+    if (dataInicial && dataFinal && dataInicial > dataFinal) {
+      throw new RequestValidationError('dataInicial must be on or before dataFinal.');
+    }
+    const etiquetaId = parsePositiveId(queryValue(req, 'etiquetaId'), 'etiquetaId');
+
+    return res.json({
+      data: await analytics.attendanceDashboard({
+        usuarioId,
+        dataInicial,
+        dataFinal,
+        etiquetaId,
+      }),
+    });
   });
 
   router.get('/alertas/atendimentos', async (req, res) => {

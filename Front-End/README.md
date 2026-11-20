@@ -69,8 +69,11 @@ Operações disponíveis:
 - `getContacts(page, limit)` e `createContact({ telefone, nome, email })`.
 - `getLabels()`, `getConversationLabels(id)` e `addConversationLabel(id, etiquetaId)`.
 - `getAttendanceSettings()` e `updateAttendanceSettings(input)` para horário comercial e mensagens automáticas.
+- `getDashboardMetrics({ usuarioId, dataInicial, dataFinal, etiquetaId })` consulta `GET /api/dashboard/atendimentos` (exclusivo para `admin`).
 
 Todas as funções rejeitam com `ApiError` em falhas HTTP; o `message` contém a mensagem apropriada para exibição na interface e `status` mantém o status HTTP original.
+
+A página **Dashboard** é visível apenas para usuários com perfil `admin` (atendentes são redirecionados para **Conversas** e não veem o item no menu lateral). Ela oferece filtros por **usuário/atendente**, **período** (todo o período, últimos 7 dias, últimos 30 dias ou intervalo personalizado) e **etiqueta**, exibindo **conversas totais**, **conversas ativas**, **tempo médio de atendimento** e **tempo médio de resposta** (após a mensagem automática inicial) em cards e em gráficos de seção de círculo (donut charts).
 
 Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave. Administradores visualizam o atendente atribuído em cada conversa, podem assumir a conversa, atribuí-la a outros usuários ativos, remover atribuições e responder conversas atribuídas a terceiros sem alterar a atribuição. Mensagens automáticas (`origem: "chatbot"`) são identificadas visualmente no histórico.
 
