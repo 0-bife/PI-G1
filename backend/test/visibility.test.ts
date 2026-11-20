@@ -26,3 +26,15 @@ test('administrador lista sem filtro de atribuição', async () => {
   expect(calls[0].sql).not.toMatch(/ATRIBUICAO vis/);
   expect(calls[0].values).toEqual([]);
 });
+
+test('busca de mensagens aplica escopo de atribuição para atendente e não para admin', async () => {
+  const attendant = capture();
+  await attendant.service.searchConversations('pedido', 20, 7);
+  expect(attendant.calls[1].sql).toMatch(/ATRIBUICAO ar/);
+  expect(attendant.calls[1].values).toEqual(['%pedido%', 7]);
+
+  const admin = capture();
+  await admin.service.searchConversations('pedido', 20);
+  expect(admin.calls[1].sql).not.toMatch(/ATRIBUICAO ar/);
+  expect(admin.calls[1].values).toEqual(['%pedido%']);
+});

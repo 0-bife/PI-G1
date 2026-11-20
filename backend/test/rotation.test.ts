@@ -20,7 +20,8 @@ function fakePool(activeUsers: number[], assignments: Assignment[] = []) {
       const next = [...activeUsers].sort((x, y) => last(x) - last(y) || x - y)[0];
       return [[{ id_usuario: next }], []];
     }
-    if (sql.trim().startsWith('SELECT id_usuario FROM USUARIO')) {
+    if (sql.trim().startsWith('SELECT u.id_usuario FROM USUARIO u')) {
+      expect(sql).toMatch(/AUTH_SESSAO/);
       return [activeUsers.map((id) => ({ id_usuario: id })), []];
     }
     if (sql.includes('INSERT INTO ATRIBUICAO')) {
@@ -72,4 +73,10 @@ test('quem entra na equipe depois recebe a próxima conversa', async () => {
   active.push(3);
   expect(await assignByRotation(pool, 12)).toBe(3);
   expect(state.assignments.map((a) => a.user)).toEqual([1, 2, 3]);
+});
+
+test('fora do horário comercial não atribui no rodízio', async () => {
+  const { pool, state } = fakePool([1, 2]);
+  expect(await assignByRotation(pool, 10, { isBusinessHours: false })).toBeNull();
+  expect(state.inserts).toBe(0);
 });

@@ -226,6 +226,7 @@ export class ConversationService {
        JOIN CONTATO c ON c.id_contato = v.FK_CONTATO_id_contato
        LEFT JOIN USUARIO u ON u.id_usuario = m.FK_USUARIO_id_usuario
        WHERE m.conteudo LIKE ?
+       ${messageScope}
        ORDER BY m.data_hora DESC, m.id_mensagem DESC
        LIMIT ${limit}`,
       [term, ...extra],

@@ -13,7 +13,8 @@ Pequenas empresas usam o WhatsApp como principal canal de comunicação com os c
 - **Autenticação** com JWT (12 horas) e sessões revogáveis: logout, troca de senha e desativação do usuário invalidam o token imediatamente.
 - **Perfis de acesso:** `admin` (gerencia usuários) e `atendente`.
 - **Conversas e mensagens** integradas ao WhatsApp: recebimento por webhook e envio de texto pela Graph API.
-- **Atendimentos** com ciclos (abrir e encerrar), prazo de retorno e vários responsáveis simultâneos.
+- **Atendimentos** com ciclos (abrir e encerrar), prazo de retorno, **rodízio automático entre atendentes online em horário comercial configurável** (padrão `10:00`–`22:00`) e gestão manual de responsáveis por administradores (incluindo assumir, atribuir a terceiros e responder sem alterar a atribuição).
+- **Respostas automáticas contextuais** no webhook do WhatsApp: menu de boas-vindas para novas conversas em horário comercial com atendentes online, aviso de indisponibilidade fora do horário ou sem atendentes online, e vínculo automático de etiquetas cujo nome corresponda à opção respondida pelo cliente.
 - **Contatos e etiquetas**, com identificação do contato pelo telefone (E.164).
 - **Notas internas** por conversa, nunca enviadas ao WhatsApp.
 - **Histórico de status das mensagens:** enviada, entregue, lida ou falha.
@@ -61,6 +62,8 @@ Copie `backend/.env.example` para `backend/.env`. Nunca versione o `.env`.
 | `WHATSAPP_VERIFY_TOKEN` | Token que você define para a verificação do webhook. |
 | `WHATSAPP_APP_SECRET` | Segredo do app Meta, usado para validar a assinatura do webhook. |
 | `WHATSAPP_API_VERSION` | Versão da Graph API suportada pelo seu app (ex.: `v21.0`; confira no painel Meta). |
+| `BUSINESS_HOURS_START`, `BUSINESS_HOURS_END` | Início e fim padrão do horário comercial no formato `HH:MM` (padrão `10:00` e `22:00`). |
+| `AUTO_REPLY_CONFIG_PATH` | Caminho opcional do arquivo JSON onde o backend persiste a configuração de horário comercial e mensagens automáticas (padrão `backend/data/auto-reply-config.json`). |
 
 `JWT_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos: nunca os coloque no repositório, em logs ou no frontend.
 
@@ -106,6 +109,7 @@ Todas as rotas `/api/*` exigem `Authorization: Bearer <token>`, exceto `POST /ap
 | Saúde | `GET /health`, `GET /health/ready` |
 | Autenticação | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout`, `PATCH /api/auth/password` |
 | Usuários (admin) | `GET/POST /api/usuarios`, `GET/PATCH /api/usuarios/:id` |
+| Configurações | `GET/PATCH /api/configuracoes/perfil`, `GET/PATCH /api/configuracoes/atendimento` |
 | Contatos | `GET/POST /api/contatos`, `GET/PATCH/DELETE /api/contatos/:telefone`, etiquetas do contato |
 | Etiquetas | `GET/POST /api/etiquetas`, `GET/PATCH/DELETE /api/etiquetas/:id` |
 | Conversas | `GET/POST /api/conversas`, `GET /api/conversas/:id`, etiquetas da conversa |
