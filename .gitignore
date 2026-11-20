@@ -8,3 +8,4 @@ dist/
 *.log
 wpp.test.ts
 copilot-instructions.md
+*.zip
