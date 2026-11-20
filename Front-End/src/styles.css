@@ -2527,3 +2527,77 @@ th {
   align-items: center;
   gap: 6px;
 }
+
+
+/* Relatórios: ranking de atendentes e usuários */
+.ranking-panel {
+  padding: 20px 24px;
+}
+
+.ranking-panel h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ranking-bars {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+
+.rank-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.role-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eef0e9;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.podium-1 {
+  color: #b57b00;
+}
+
+.podium-2 {
+  color: #5c6670;
+}
+
+.podium-3 {
+  color: #9a5b32;
+}
+
+.ranking-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.ranking-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ranking-table th,
+.ranking-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eeeadd;
+  white-space: nowrap;
+}
+
+.ranking-table th {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}

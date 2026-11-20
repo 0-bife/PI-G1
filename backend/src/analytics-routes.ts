@@ -73,17 +73,18 @@ export function createAnalyticsRouter(db: Pool): Router {
   const analytics = new AnalyticsService(db);
 
   router.get('/relatorios/atendimentos', async (req, res) => {
-    allowQueryKeys(req, ['dataInicial', 'dataFinal', 'usuarioId']);
+    allowQueryKeys(req, ['dataInicial', 'dataFinal', 'usuarioId', 'etiquetaId']);
     const user = authenticatedUser(req);
+    if (user.perfil !== 'admin') throw new AuthorizationError();
     const dataInicial = parseDate(queryValue(req, 'dataInicial'), 'dataInicial');
     const dataFinal = parseDate(queryValue(req, 'dataFinal'), 'dataFinal');
     if (dataInicial > dataFinal) {
       throw new RequestValidationError('dataInicial must be on or before dataFinal.');
     }
-    const requestedUserId = parseUserId(queryValue(req, 'usuarioId'));
-    const usuarioId = user.perfil === 'admin' ? requestedUserId : user.id_usuario;
+    const usuarioId = parseUserId(queryValue(req, 'usuarioId'));
+    const etiquetaId = parsePositiveId(queryValue(req, 'etiquetaId'), 'etiquetaId');
     return res.json({
-      data: await analytics.attendanceReport(dataInicial, dataFinal, usuarioId),
+      data: await analytics.attendanceReport(dataInicial, dataFinal, usuarioId, etiquetaId),
     });
   });
 

@@ -61,7 +61,8 @@ function ColorPicker({ value, onChange }) {
 }
 
 export default function Configuracoes({ user }) {
-  const [tab, setTab] = useState('Perfil');
+  const admin = user?.perfil === 'admin';
+  const [tab, setTab] = useState(admin ? 'Perfil' : 'Etiquetas');
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState(null);
   const [users, setUsers] = useState([]);
@@ -213,13 +214,13 @@ export default function Configuracoes({ user }) {
     } catch (error) { setMessage(error.message); }
   }
 
-  const admin = user?.perfil === 'admin';
+  const visibleSections = sections.filter(([section]) => admin || section !== 'Perfil');
   return (
     <>
       <PageHeading title="Configurações" text="Gerencie perfil, equipe, etiquetas e segurança." />
       <div className="settings-layout">
         <aside className="card settings-nav">
-          {sections.map(([section, Icon]) => (
+          {visibleSections.map(([section, Icon]) => (
             <button type="button" className={tab === section ? 'active' : ''} onClick={() => { setTab(section); setMessage(''); }} key={section}>
               <Icon size={18} />{section}<ChevronRight size={16} />
             </button>

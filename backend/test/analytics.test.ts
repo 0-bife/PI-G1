@@ -95,24 +95,12 @@ test('reports validate required inclusive dates before accessing analytics data'
   assert.deepEqual(calls[0].values, ['2026-03-01', '2026-03-31', '2026-03-01', '2026-03-31']);
 });
 
-test('attendants cannot expand report scope and receive 403 on dashboard', async () => {
+test('attendants receive 403 on both report and dashboard endpoints', async () => {
   const calls: SqlCall[] = [];
   const request = await fixture(
     { id_usuario: 7, perfil: 'atendente' },
     async (sql, values) => {
       calls.push({ sql, values });
-      if (sql.includes('taxa_conclusao_percentual')) {
-        return [[{
-          id: 7,
-          nome: 'Atendente',
-          atendimentos_realizados: 2,
-          pendentes: 1,
-          tempo_medio_resposta_segundos: 120,
-          tempo_medio_atendimento_segundos: 300,
-          taxa_conclusao_percentual: 66.67,
-          sla_percentual: 100,
-        }], []];
-      }
       return [[]];
     },
   );
@@ -120,13 +108,10 @@ test('attendants cannot expand report scope and receive 403 on dashboard', async
   const report = await request(
     '/api/relatorios/atendimentos?dataInicial=2026-03-01&dataFinal=2026-03-31&usuarioId=99',
   );
-  assert.equal(report.status, 200);
-  assert.deepEqual((await report.json() as { data: { id: number }[] }).data.map((row) => row.id), [7]);
+  assert.equal(report.status, 403);
   const dashboard = await request('/api/dashboard/atendimentos?usuarioId=99');
   assert.equal(dashboard.status, 403);
-
-  assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0].values, ['2026-03-01', '2026-03-31', 7, '2026-03-01', '2026-03-31', 7]);
+  assert.equal(calls.length, 0);
 });
 
 test('alerts default to 30 minutes and restrict attendants to active own assignments', async () => {
@@ -333,4 +318,68 @@ test('dashboard supports usuarioId, periodo and etiquetaId filters and returns e
   assert.match(calls[0].sql, /msg_cliente_apos_bot/);
   assert.match(calls[0].sql, /FROM marca m_etq/);
   assert.deepEqual(calls[1].values, ['2026-04-01', '2026-04-30', 3, 45]);
+});
+
+test('reports endpoint returns ranked attendants and admins with dashboard metrics and etiquetaId filter', async () => {
+  const calls: SqlCall[] = [];
+  const request = await fixture(
+    { id_usuario: 1, perfil: 'admin' },
+    async (sql, values) => {
+      calls.push({ sql, values });
+      return [[
+        {
+          id: 45,
+          nome: 'Ana',
+          perfil: 'atendente',
+          conversas_totais: 14,
+          conversas_ativas: 2,
+          atendimentos_realizados: 12,
+          pendentes: 2,
+          tempo_medio_resposta_segundos: 90,
+          tempo_medio_atendimento_segundos: 600,
+          taxa_conclusao_percentual: 85.71,
+          sla_percentual: 100,
+        },
+        {
+          id: 1,
+          nome: 'Carlos Admin',
+          perfil: 'admin',
+          conversas_totais: 5,
+          conversas_ativas: 1,
+          atendimentos_realizados: 4,
+          pendentes: 1,
+          tempo_medio_resposta_segundos: 120,
+          tempo_medio_atendimento_segundos: 450,
+          taxa_conclusao_percentual: 80,
+          sla_percentual: 100,
+        },
+      ], []];
+    },
+  );
+
+  const res = await request(
+    '/api/relatorios/atendimentos?dataInicial=2026-04-01&dataFinal=2026-04-30&etiquetaId=2',
+  );
+  assert.equal(res.status, 200);
+  const payload = (await res.json()) as {
+    data: Array<{
+      posicao: number;
+      id: number;
+      nome: string;
+      perfil: string;
+      conversasTotais: number;
+      conversasAtivas: number;
+      atendimentosRealizados: number;
+    }>;
+  };
+  assert.equal(payload.data.length, 2);
+  assert.equal(payload.data[0].posicao, 1);
+  assert.equal(payload.data[0].perfil, 'atendente');
+  assert.equal(payload.data[0].conversasTotais, 14);
+  assert.equal(payload.data[0].conversasAtivas, 2);
+  assert.equal(payload.data[1].posicao, 2);
+  assert.equal(payload.data[1].perfil, 'admin');
+  assert.match(calls[0].sql, /u\.perfil IN \('atendente', 'admin'\)/);
+  assert.match(calls[0].sql, /FROM marca m_etq/);
+  assert.deepEqual(calls[0].values, ['2026-04-01', '2026-04-30', 2, '2026-04-01', '2026-04-30']);
 });

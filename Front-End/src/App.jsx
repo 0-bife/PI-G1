@@ -19,12 +19,14 @@ function syncUrl(page, replace = false) {
 }
 
 // Login não é destino válido para quem já está autenticado.
-// Dashboard é exclusivo para administradores; atendentes caem em Conversas.
+// Dashboard e Relatórios são exclusivos para administradores; atendentes caem em Conversas.
+const ADMIN_ONLY_PAGES = new Set(['Dashboard', 'Relatórios']);
+
 function authenticatedTarget(requested, currentUser) {
   const isAdmin = currentUser?.perfil === 'admin';
   const fallback = isAdmin ? 'Dashboard' : 'Conversas';
   if (!requested || requested === 'Login') return fallback;
-  if (requested === 'Dashboard' && !isAdmin) return 'Conversas';
+  if (ADMIN_ONLY_PAGES.has(requested) && !isAdmin) return 'Conversas';
   return requested;
 }
 
@@ -37,7 +39,7 @@ export default function App() {
   userRef.current = user;
 
   const navigate = useCallback((next, replace = false) => {
-    const target = next === 'Dashboard' && userRef.current && userRef.current.perfil !== 'admin'
+    const target = ADMIN_ONLY_PAGES.has(next) && userRef.current && userRef.current.perfil !== 'admin'
       ? 'Conversas'
       : next;
     setPage(target);
@@ -114,7 +116,7 @@ export default function App() {
     Dashboard: <Dashboard user={user} onOpenConversations={() => navigate('Conversas')} />,
     Conversas: <Conversas user={user} focusId={focusConversationId} onFocusHandled={() => setFocusConversationId(null)} />,
     Contatos: <Contatos />,
-    Relatórios: <Relatorios />,
+    Relatórios: <Relatorios user={user} />,
     Configurações: <Configuracoes user={user} />,
   };
 

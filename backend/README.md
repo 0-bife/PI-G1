@@ -164,21 +164,25 @@ As três rotas abaixo exigem `Authorization: Bearer <token>`. O middleware valid
 
 ### `GET /api/relatorios/atendimentos`
 
-Parâmetros obrigatórios `dataInicial` e `dataFinal`, no formato `YYYY-MM-DD`; as duas datas são inclusivas e o intervalo é aplicado à data de início do atendimento. `usuarioId` é opcional para administradores. Para atendentes, um `usuarioId` informado é validado, mas ignorado como escopo: a consulta sempre usa o ID autenticado.
+Acesso exclusivo para **administradores** (`403` para atendentes). Parâmetros obrigatórios `dataInicial` e `dataFinal`, no formato `YYYY-MM-DD`; as duas datas são inclusivas e o intervalo é aplicado à data de início do atendimento. Aceita filtros opcionais `usuarioId` e `etiquetaId`.
 
 ```http
-GET /api/relatorios/atendimentos?dataInicial=2026-10-01&dataFinal=2026-10-31&usuarioId=45
+GET /api/relatorios/atendimentos?dataInicial=2026-10-01&dataFinal=2026-10-31&etiquetaId=2
 Authorization: Bearer <token>
 ```
 
-Resposta `200` (`data` contém estatísticas por atendente):
+Resposta `200` (`data` contém o ranking de atendentes e administradores ordenado por desempenho com as métricas do dashboard):
 
 ```json
 {
   "data": [
     {
+      "posicao": 1,
       "id": 45,
       "nome": "Ana",
+      "perfil": "atendente",
+      "conversasTotais": 21,
+      "conversasAtivas": 3,
       "atendimentosRealizados": 18,
       "pendentes": 3,
       "tempoMedioRespostaSegundos": 245.5,
@@ -190,7 +194,7 @@ Resposta `200` (`data` contém estatísticas por atendente):
 }
 ```
 
-O tempo médio de resposta é calculado entre a primeira mensagem do contato e a primeira resposta do atendente no atendimento; o tempo médio de atendimento considera apenas atendimentos encerrados. A taxa de conclusão é a proporção encerrada sobre o total atribuído no intervalo. O SLA considera a primeira resposta até `prazo_retorno`; prazos ainda não vencidos e sem resposta não entram no denominador. Métricas sem amostras retornam `0`.
+O ranking inclui usuários com perfil `atendente` e `admin`, ordenados por atendimentos realizados, conversas totais e menor tempo médio de resposta. O tempo médio de resposta é calculado entre a primeira mensagem do cliente após a mensagem automática inicial (`origem = 'chatbot'`, quando existir no atendimento) e a primeira resposta do atendente (`origem = 'usuario'`); o tempo médio de atendimento considera apenas atendimentos encerrados. A taxa de conclusão é a proporção encerrada sobre o total atribuído no intervalo. O SLA considera a primeira resposta até `prazo_retorno`; prazos ainda não vencidos e sem resposta não entram no denominador. Métricas sem amostras retornam `0`.
 
 ### `GET /api/dashboard/atendimentos`
 

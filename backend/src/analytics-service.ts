@@ -4,6 +4,9 @@ import type { Pool } from 'mysql2/promise';
 interface ReportRow extends RowDataPacket {
   id: number;
   nome: string;
+  perfil?: 'admin' | 'atendente';
+  conversas_totais?: number | string;
+  conversas_ativas?: number | string;
   atendimentos_realizados: number | string;
   pendentes: number | string;
   tempo_medio_resposta_segundos: number | string | null;
@@ -51,33 +54,49 @@ function numberValue(value: number | string | null): number {
 
 const responseMetricsJoin = `
   LEFT JOIN (
-    SELECT primeiro_contato.id_atendimento,
-           primeiro_contato.primeira_mensagem_contato,
+    SELECT cliente_pos_bot.id_atendimento,
+           cliente_pos_bot.msg_cliente_apos_bot AS primeira_mensagem_contato,
            MIN(resposta.data_hora) AS primeira_resposta_atendente
     FROM (
-      SELECT a2.id_atendimento, a2.FK_CONVERSA_id_conversa,
-             a2.iniciado_em, a2.encerrado_em,
-             MIN(CASE WHEN m.origem = 'contato' THEN m.data_hora END)
-               AS primeira_mensagem_contato
-      FROM ATENDIMENTO a2
-      LEFT JOIN MENSAGEM m
-        ON m.FK_CONVERSA_id_conversa = a2.FK_CONVERSA_id_conversa
-       AND m.data_hora >= a2.iniciado_em
-       AND (a2.encerrado_em IS NULL OR m.data_hora <= a2.encerrado_em)
-      WHERE a2.iniciado_em >= ?
-        AND a2.iniciado_em < DATE_ADD(?, INTERVAL 1 DAY)
-      GROUP BY a2.id_atendimento, a2.FK_CONVERSA_id_conversa,
-               a2.iniciado_em, a2.encerrado_em
-    ) primeiro_contato
+      SELECT bot_inicial.id_atendimento,
+             bot_inicial.FK_CONVERSA_id_conversa,
+             bot_inicial.iniciado_em,
+             bot_inicial.encerrado_em,
+             MIN(CASE
+               WHEN mc.origem = 'contato'
+                AND (bot_inicial.primeira_bot IS NULL OR mc.data_hora >= bot_inicial.primeira_bot)
+               THEN mc.data_hora
+             END) AS msg_cliente_apos_bot
+      FROM (
+        SELECT a2.id_atendimento, a2.FK_CONVERSA_id_conversa,
+               a2.iniciado_em, a2.encerrado_em,
+               MIN(CASE WHEN mb.origem = 'chatbot' THEN mb.data_hora END) AS primeira_bot
+        FROM ATENDIMENTO a2
+        LEFT JOIN MENSAGEM mb
+          ON mb.FK_CONVERSA_id_conversa = a2.FK_CONVERSA_id_conversa
+         AND mb.data_hora >= a2.iniciado_em
+         AND (a2.encerrado_em IS NULL OR mb.data_hora <= a2.encerrado_em)
+        WHERE a2.iniciado_em >= ?
+          AND a2.iniciado_em < DATE_ADD(?, INTERVAL 1 DAY)
+        GROUP BY a2.id_atendimento, a2.FK_CONVERSA_id_conversa,
+                 a2.iniciado_em, a2.encerrado_em
+      ) bot_inicial
+      LEFT JOIN MENSAGEM mc
+        ON mc.FK_CONVERSA_id_conversa = bot_inicial.FK_CONVERSA_id_conversa
+       AND mc.data_hora >= bot_inicial.iniciado_em
+       AND (bot_inicial.encerrado_em IS NULL OR mc.data_hora <= bot_inicial.encerrado_em)
+      GROUP BY bot_inicial.id_atendimento, bot_inicial.FK_CONVERSA_id_conversa,
+               bot_inicial.iniciado_em, bot_inicial.encerrado_em
+    ) cliente_pos_bot
     LEFT JOIN MENSAGEM resposta
-      ON resposta.FK_CONVERSA_id_conversa = primeiro_contato.FK_CONVERSA_id_conversa
+      ON resposta.FK_CONVERSA_id_conversa = cliente_pos_bot.FK_CONVERSA_id_conversa
      AND resposta.origem = 'usuario'
-     AND resposta.data_hora >= primeiro_contato.primeira_mensagem_contato
-     AND resposta.data_hora >= primeiro_contato.iniciado_em
-     AND (primeiro_contato.encerrado_em IS NULL
-          OR resposta.data_hora <= primeiro_contato.encerrado_em)
-    GROUP BY primeiro_contato.id_atendimento,
-             primeiro_contato.primeira_mensagem_contato
+     AND resposta.data_hora >= cliente_pos_bot.msg_cliente_apos_bot
+     AND resposta.data_hora >= cliente_pos_bot.iniciado_em
+     AND (cliente_pos_bot.encerrado_em IS NULL
+          OR resposta.data_hora <= cliente_pos_bot.encerrado_em)
+    GROUP BY cliente_pos_bot.id_atendimento,
+             cliente_pos_bot.msg_cliente_apos_bot
   ) respostas ON respostas.id_atendimento = a.id_atendimento`;
 
 export class AnalyticsService {
@@ -87,16 +106,29 @@ export class AnalyticsService {
     dataInicial: string,
     dataFinal: string,
     usuarioId?: number,
+    etiquetaId?: number,
   ) {
     const userFilter = usuarioId === undefined ? '' : 'AND u.id_usuario = ?';
     const assignmentFilter = usuarioId === undefined ? '' : 'AND atr.FK_USUARIO_id_usuario = ?';
+    const labelFilter = etiquetaId === undefined
+      ? ''
+      : `AND EXISTS (
+           SELECT 1 FROM marca m_etq
+           WHERE m_etq.fk_CONVERSA_id_conversa = a.FK_CONVERSA_id_conversa
+             AND m_etq.fk_ETIQUETA_id_etiqueta = ?
+         )`;
     const values: (string | number)[] = [dataInicial, dataFinal];
     if (usuarioId !== undefined) values.push(usuarioId);
+    if (etiquetaId !== undefined) values.push(etiquetaId);
     values.push(dataInicial, dataFinal);
     if (usuarioId !== undefined) values.push(usuarioId);
 
     const [rows] = await this.db.execute<ReportRow[]>(
-      `SELECT u.id_usuario AS id, u.nome,
+      `SELECT u.id_usuario AS id, u.nome, u.perfil,
+              COUNT(DISTINCT a.FK_CONVERSA_id_conversa) AS conversas_totais,
+              COUNT(DISTINCT CASE WHEN a.id_atendimento IS NOT NULL
+                                    AND a.encerrado_em IS NULL
+                                  THEN a.FK_CONVERSA_id_conversa END) AS conversas_ativas,
               COUNT(DISTINCT CASE WHEN a.encerrado_em IS NOT NULL
                                   THEN a.id_atendimento END) AS atendimentos_realizados,
               COUNT(DISTINCT CASE WHEN a.id_atendimento IS NOT NULL
@@ -130,7 +162,8 @@ export class AnalyticsService {
               ), 0) AS sla_percentual
        FROM USUARIO u
        LEFT JOIN (
-         SELECT DISTINCT a.id_atendimento, a.iniciado_em, a.encerrado_em,
+         SELECT DISTINCT a.id_atendimento, a.FK_CONVERSA_id_conversa,
+                a.iniciado_em, a.encerrado_em,
                 a.prazo_retorno, atr.FK_USUARIO_id_usuario
          FROM ATENDIMENTO a
          JOIN ATRIBUICAO atr
@@ -138,24 +171,41 @@ export class AnalyticsService {
          WHERE a.iniciado_em >= ?
            AND a.iniciado_em < DATE_ADD(?, INTERVAL 1 DAY)
            ${assignmentFilter}
+           ${labelFilter}
        ) a ON a.FK_USUARIO_id_usuario = u.id_usuario
        ${responseMetricsJoin}
-       WHERE u.perfil = 'atendente' ${userFilter}
-       GROUP BY u.id_usuario, u.nome
-       ORDER BY u.nome, u.id_usuario`,
+       WHERE u.perfil IN ('atendente', 'admin') ${userFilter}
+       GROUP BY u.id_usuario, u.nome, u.perfil
+       ORDER BY atendimentos_realizados DESC,
+                conversas_totais DESC,
+                COALESCE(tempo_medio_resposta_segundos, 999999999) ASC,
+                u.nome ASC,
+                u.id_usuario ASC`,
       values,
     );
 
-    return rows.map((row) => ({
-      id: Number(row.id),
-      nome: row.nome,
-      atendimentosRealizados: numberValue(row.atendimentos_realizados),
-      pendentes: numberValue(row.pendentes),
-      tempoMedioRespostaSegundos: numberValue(row.tempo_medio_resposta_segundos),
-      tempoMedioAtendimentoSegundos: numberValue(row.tempo_medio_atendimento_segundos),
-      taxaConclusaoPercentual: numberValue(row.taxa_conclusao_percentual),
-      slaPercentual: numberValue(row.sla_percentual),
-    }));
+    return rows.map((row, index) => {
+      const atendimentosRealizados = numberValue(row.atendimentos_realizados);
+      const pendentes = numberValue(row.pendentes);
+      return {
+        posicao: index + 1,
+        id: Number(row.id),
+        nome: row.nome,
+        perfil: row.perfil === 'admin' ? 'admin' : 'atendente',
+        conversasTotais: row.conversas_totais !== undefined
+          ? numberValue(row.conversas_totais)
+          : atendimentosRealizados + pendentes,
+        conversasAtivas: row.conversas_ativas !== undefined
+          ? numberValue(row.conversas_ativas)
+          : pendentes,
+        atendimentosRealizados,
+        pendentes,
+        tempoMedioRespostaSegundos: numberValue(row.tempo_medio_resposta_segundos),
+        tempoMedioAtendimentoSegundos: numberValue(row.tempo_medio_atendimento_segundos),
+        taxaConclusaoPercentual: numberValue(row.taxa_conclusao_percentual),
+        slaPercentual: numberValue(row.sla_percentual),
+      };
+    });
   }
 
   async attendanceDashboard(filters: DashboardFilters = {}) {
