@@ -61,13 +61,17 @@ function ConversationList() {
 Operações disponíveis:
 
 - `login(email, senha)` e `logout()`; `checkMe()` valida a sessão no carregamento.
-- `getConversations(page, limit)`, `searchConversations(query, limit)` e `createConversation(telefone)`.
+- `getConversations(page, limit)`, `getConversation(id)`, `searchConversations(query, limit)` e `createConversation(telefone)`.
+- `openAttendance(conversationId)`, `addAssignment(attendanceId, usuarioId)` e `closeAssignment(assignmentId)`.
 - `getConversationMessages(id, page, limit)` e `sendMessage(id, conteudo)`.
 - `getMessage(id)` carrega a mensagem específica para navegação a partir da busca.
 - `getConversationAnnotations(id, page, limit)` e `createAnnotation(id, texto)`.
 - `getContacts(page, limit)` e `createContact({ telefone, nome, email })`.
 - `getLabels()`, `getConversationLabels(id)` e `addConversationLabel(id, etiquetaId)`.
+- `getAttendanceSettings()` e `updateAttendanceSettings(input)` para horário comercial e mensagens automáticas.
 
 Todas as funções rejeitam com `ApiError` em falhas HTTP; o `message` contém a mensagem apropriada para exibição na interface e `status` mantém o status HTTP original.
 
-Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave.
+Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave. Administradores visualizam o atendente atribuído em cada conversa, podem assumir a conversa, atribuí-la a outros usuários ativos, remover atribuições e responder conversas atribuídas a terceiros sem alterar a atribuição. Mensagens automáticas (`origem: "chatbot"`) são identificadas visualmente no histórico.
+
+Na página de configurações, a aba **Mensagens automáticas** permite aos administradores ativar/desativar o horário comercial, configurar o intervalo (padrão `10:00`–`22:00`) e editar os textos de boas-vindas e de indisponibilidade.

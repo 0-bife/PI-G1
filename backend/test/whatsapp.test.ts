@@ -72,9 +72,9 @@ class MemoryDatabase {
     if (sql.includes('FROM AUTH_SESSAO')) {
       return [[{
         id_usuario: 1,
-        nome: 'Test Agent',
-        email: 'agent@example.com',
-        perfil: 'atendente',
+        nome: 'Test Admin',
+        email: 'admin@example.com',
+        perfil: 'admin',
         ativo: true,
       }], []];
     }
@@ -134,11 +134,11 @@ class MemoryDatabase {
             telefone: contact.telefone,
           }] : [], []];
         }
-        if (sql.startsWith('SELECT id_atendimento FROM ATENDIMENTO')) {
+        if (sql.startsWith('SELECT id_atendimento') && sql.includes('FROM ATENDIMENTO')) {
           const attendance = db.attendances.find(
             (row) => row.conversationId === values[0] && !row.closed,
           );
-          return [attendance ? [{ id_atendimento: attendance.id_atendimento }] : [], []];
+          return [attendance ? [{ id_atendimento: attendance.id_atendimento, iniciado_em: '2026-11-20 15:00:00' }] : [], []];
         }
         if (sql.startsWith('INSERT INTO ATENDIMENTO')) {
           const attendance = {

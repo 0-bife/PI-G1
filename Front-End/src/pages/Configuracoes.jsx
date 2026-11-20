@@ -8,10 +8,12 @@ import {
   createUser,
   deactivateUser,
   deleteLabel,
+  getAttendanceSettings,
   getBusinessSettings,
   getLabels,
   getUsers,
   resetUserPassword,
+  updateAttendanceSettings,
   updateBusinessSettings,
   updateLabel,
   updateUser,
@@ -69,6 +71,8 @@ export default function Configuracoes({ user }) {
   const [passwords, setPasswords] = useState({ atual: '', nova: '' });
   const [savingProfile, setSavingProfile] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [attendanceSettings, setAttendanceSettings] = useState(null);
+  const [savingAttendance, setSavingAttendance] = useState(false);
 
   useEffect(() => {
     setLoadingProfile(true);
@@ -85,7 +89,28 @@ export default function Configuracoes({ user }) {
     if (tab === 'Etiquetas') {
       getLabels().then(({ data }) => setLabels(data)).catch((error) => setMessage(error.message));
     }
+    if (tab === 'Mensagens automáticas') {
+      getAttendanceSettings()
+        .then(({ data }) => setAttendanceSettings(data))
+        .catch((error) => setMessage(error.message));
+    }
   }, [tab, user]);
+
+  async function saveAttendance(event) {
+    event.preventDefault();
+    if (!attendanceSettings) return;
+    setSavingAttendance(true);
+    setMessage('');
+    try {
+      const result = await updateAttendanceSettings(attendanceSettings);
+      setAttendanceSettings(result.data);
+      setMessage('Configurações de atendimento e mensagens automáticas salvas com sucesso.');
+    } catch (error) {
+      setMessage(error.message);
+    } finally {
+      setSavingAttendance(false);
+    }
+  }
 
   async function saveProfile(event) {
     event.preventDefault();
@@ -221,7 +246,92 @@ export default function Configuracoes({ user }) {
             </form>
           )}
 
-          {(tab === 'Integrações' || tab === 'Mensagens automáticas') && <div className="empty-settings"><strong>Em breve!</strong><p>Este recurso estará disponível em uma próxima versão.</p></div>}
+          {tab === 'Integrações' && <div className="empty-settings"><strong>Em breve!</strong><p>Este recurso estará disponível em uma próxima versão.</p></div>}
+
+          {tab === 'Mensagens automáticas' && !attendanceSettings && (
+            <p>Carregando configurações de atendimento automático...</p>
+          )}
+
+          {tab === 'Mensagens automáticas' && attendanceSettings && (
+            <form onSubmit={saveAttendance} className="settings-stack">
+              <p className="settings-hint">
+                O rodízio automático atribui novas conversas somente entre atendentes online dentro do horário comercial ({settings?.fuso_horario || 'America/Sao_Paulo'}).
+              </p>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={attendanceSettings.horario_ativo}
+                  onChange={(e) => setAttendanceSettings({
+                    ...attendanceSettings,
+                    horario_ativo: e.target.checked,
+                  })}
+                  disabled={!admin}
+                />
+                <span>Restringir atendimento automático ao horário comercial</span>
+              </label>
+              <div className="form-grid settings-fields">
+                <label>
+                  Horário de início
+                  <input
+                    type="time"
+                    required
+                    value={attendanceSettings.horario_inicio}
+                    onChange={(e) => setAttendanceSettings({
+                      ...attendanceSettings,
+                      horario_inicio: e.target.value,
+                    })}
+                    disabled={!admin || !attendanceSettings.horario_ativo}
+                  />
+                </label>
+                <label>
+                  Horário de término
+                  <input
+                    type="time"
+                    required
+                    value={attendanceSettings.horario_fim}
+                    onChange={(e) => setAttendanceSettings({
+                      ...attendanceSettings,
+                      horario_fim: e.target.value,
+                    })}
+                    disabled={!admin || !attendanceSettings.horario_ativo}
+                  />
+                </label>
+              </div>
+              <label className="textarea-field">
+                Mensagem de boas-vindas (em horário comercial com atendentes online)
+                <textarea
+                  rows={4}
+                  required
+                  maxLength={2048}
+                  value={attendanceSettings.mensagem_boas_vindas}
+                  onChange={(e) => setAttendanceSettings({
+                    ...attendanceSettings,
+                    mensagem_boas_vindas: e.target.value,
+                  })}
+                  disabled={!admin}
+                />
+              </label>
+              <label className="textarea-field">
+                Mensagem fora do horário ou sem atendentes online
+                <textarea
+                  rows={3}
+                  required
+                  maxLength={2048}
+                  value={attendanceSettings.mensagem_indisponivel}
+                  onChange={(e) => setAttendanceSettings({
+                    ...attendanceSettings,
+                    mensagem_indisponivel: e.target.value,
+                  })}
+                  disabled={!admin}
+                />
+              </label>
+              {admin && (
+                <button className="primary" type="submit" disabled={savingAttendance}>
+                  {savingAttendance ? 'Salvando...' : 'Salvar configurações'}
+                </button>
+              )}
+            </form>
+          )}
 
           {tab === 'Etiquetas' && (
             <div className="settings-stack">

@@ -18,6 +18,7 @@ import {
 import { WhatsAppClient } from './whatsapp.js';
 import { ReportService } from './report-service.js';
 import { SettingsService } from './settings-service.js';
+import { AutoReplyConfigService, isWithinBusinessHours } from './auto-reply-config.js';
 
 function fail(message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status: 400 });
@@ -76,7 +77,12 @@ export function createApp(
 ) {
   const app = express();
   app.disable('x-powered-by');
-  const messages = new MessageService(db, whatsappClient, logger);
+  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null, whatsappClient);
+  const autoReplyStoragePath = config.AUTO_REPLY_CONFIG_PATH !== undefined
+    ? (config.AUTO_REPLY_CONFIG_PATH.trim() || null)
+    : (config === process.env ? undefined : null);
+  const autoReplyConfig = new AutoReplyConfigService(config, autoReplyStoragePath);
+  const messages = new MessageService(db, whatsappClient, logger, autoReplyConfig, settings);
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
   const reports = new ReportService(db);
@@ -110,13 +116,20 @@ export function createApp(
     if (conversationId === null) throw notFound('Assignment not found.');
     await assertConversationAccess(req, conversationId);
   }
-  const settings = new SettingsService(db, config.WHATSAPP_ACCOUNT_NUMBER ?? null);
   const corsOrigins = new Set(
     (config.CORS_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean),
   );
   if (corsOrigins.has('*')) throw new Error('CORS_ORIGINS must contain explicit origins, not a wildcard.');
 
-  // Garante um atendimento aberto e o entrega ao próximo atendente da fila.
+  async function isCurrentlyBusinessHours(): Promise<boolean> {
+    const [attendanceConfig, profileSettings] = await Promise.all([
+      autoReplyConfig.get(),
+      settings.get().catch(() => ({ fuso_horario: 'America/Sao_Paulo' })),
+    ]);
+    return isWithinBusinessHours(attendanceConfig, profileSettings.fuso_horario);
+  }
+
+  // Garante um atendimento aberto e o entrega ao próximo atendente online em horário comercial.
   // Falhas aqui não derrubam a criação da conversa: só vão para o log.
   async function autoAssign(conversationId: number): Promise<void> {
     try {
@@ -126,7 +139,10 @@ export function createApp(
         const current = await conversations.getConversation(conversationId);
         attendanceId = current?.atendimento_aberto?.id_atendimento ?? null;
       }
-      if (attendanceId !== null) await assignByRotation(db, attendanceId);
+      if (attendanceId !== null) {
+        const isBusinessHours = await isCurrentlyBusinessHours();
+        await assignByRotation(db, attendanceId, { isBusinessHours });
+      }
     } catch (error) {
       logger.error('Automatic assignment failed.', { code: errorInfo(error).code || 'INTERNAL_ERROR' });
     }
@@ -227,6 +243,40 @@ export function createApp(
       if (error instanceof Error && typeof (error as unknown as Record<string, unknown>).statusCode === 'number') {
         return res.status(502).json({ error: 'WhatsApp provider rejected the profile update.' });
       }
+      if (error instanceof Error) throw new RequestValidationError(error.message);
+      throw error;
+    }
+  });
+
+  app.get('/api/configuracoes/atendimento', async (_req: Request, res: Response) => {
+    return res.json({ data: await autoReplyConfig.get() });
+  });
+  app.patch('/api/configuracoes/atendimento', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const body = isRecord(req.body) ? req.body : {};
+    const allowed = [
+      'horario_ativo',
+      'horario_inicio',
+      'horario_fim',
+      'mensagem_boas_vindas',
+      'mensagem_indisponivel',
+    ];
+    if (!Object.keys(body).length || Object.keys(body).some((key) => !allowed.includes(key))) {
+      throw new RequestValidationError(
+        'Informe apenas horario_ativo, horario_inicio, horario_fim, mensagem_boas_vindas e/ou mensagem_indisponivel.',
+      );
+    }
+    try {
+      return res.json({
+        data: await autoReplyConfig.update({
+          ...(body.horario_ativo !== undefined ? { horario_ativo: body.horario_ativo } : {}),
+          ...(body.horario_inicio !== undefined ? { horario_inicio: body.horario_inicio } : {}),
+          ...(body.horario_fim !== undefined ? { horario_fim: body.horario_fim } : {}),
+          ...(body.mensagem_boas_vindas !== undefined ? { mensagem_boas_vindas: body.mensagem_boas_vindas } : {}),
+          ...(body.mensagem_indisponivel !== undefined ? { mensagem_indisponivel: body.mensagem_indisponivel } : {}),
+        }),
+      });
+    } catch (error) {
       if (error instanceof Error) throw new RequestValidationError(error.message);
       throw error;
     }
@@ -749,7 +799,8 @@ export function createApp(
     try {
       const data = await messages.sendText({ phone: telefone, text: conteudo.trim(), userId });
       try {
-        await assignByRotation(db, data.FK_ATENDIMENTO_id_atendimento);
+        const isBusinessHours = await isCurrentlyBusinessHours();
+        await assignByRotation(db, data.FK_ATENDIMENTO_id_atendimento, { isBusinessHours });
       } catch (error) {
         logger.error('Automatic assignment failed.', { code: errorInfo(error).code || 'INTERNAL_ERROR' });
       }

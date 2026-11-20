@@ -10,17 +10,24 @@ import {
   Search,
   Send,
   Tag,
+  UserCheck,
+  X,
 } from 'lucide-react';
 import {
+  addAssignment,
   addConversationLabel,
+  closeAssignment,
   createAnnotation,
   createConversation,
+  getConversation,
   getConversationAnnotations,
   getConversationLabels,
   getConversationMessages,
   getConversations,
   getMessage,
   getLabels,
+  getUsers,
+  openAttendance,
   searchConversations,
   sendMessage,
 } from '../api.ts';
@@ -38,6 +45,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
   const [messages, setMessages] = useState([]);
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
+  const [teamUsers, setTeamUsers] = useState([]);
   const [conversationLabels, setConversationLabels] = useState([]);
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -51,15 +59,21 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const messagesRef = useRef(null);
-  const canCreate = user?.perfil === 'admin';
+  const isAdmin = user?.perfil === 'admin';
+  const canCreate = isAdmin;
 
   useEffect(() => {
     let active = true;
-    Promise.all([getConversations(1, 100), getLabels()])
-      .then(([conversationPage, labelPage]) => {
+    const requests = [getConversations(1, 100), getLabels()];
+    if (isAdmin) requests.push(getUsers(1, 100));
+    Promise.all(requests)
+      .then(([conversationPage, labelPage, userPage]) => {
         if (!active) return;
         setConversations(conversationPage.data);
         setLabels(labelPage.data);
+        if (userPage) {
+          setTeamUsers(userPage.data.filter((item) => item.ativo));
+        }
         setSelected(conversationPage.data[0] ?? null);
       })
       .catch((requestError) => {
@@ -72,7 +86,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [isAdmin]);
 
   const selectedId = selected?.id_conversa;
 
@@ -127,12 +141,18 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
     let active = true;
 
     Promise.all([
+      getConversation(selectedId),
       getConversationMessages(selectedId),
       getConversationAnnotations(selectedId),
       getConversationLabels(selectedId),
     ])
-      .then(async ([messagePage, annotationPage, labelResult]) => {
+      .then(async ([conversationResult, messagePage, annotationPage, labelResult]) => {
         if (!active) return;
+        const freshConversation = conversationResult.data;
+        setSelected((current) => (current?.id_conversa === freshConversation.id_conversa ? freshConversation : current));
+        setConversations((list) => list.map((item) => (
+          item.id_conversa === freshConversation.id_conversa ? freshConversation : item
+        )));
         let loadedMessages = messagePage.data;
         if (pendingMessageId !== null && !loadedMessages.some(
           (message) => String(message.id_mensagem) === String(pendingMessageId),
@@ -201,7 +221,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
       setMessages((current) => [...current, {
         ...result.data,
         data_hora: new Date().toISOString(),
-        nome_usuario: null,
+        nome_usuario: user?.nome ?? null,
       }]);
     } catch (requestError) {
       setError(requestError.message);
@@ -241,6 +261,47 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
       setMobileView('chat');
       setPhone('');
       setShowCreate(false);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshSelectedConversation(conversationId) {
+    const updated = (await getConversation(conversationId)).data;
+    setSelected(updated);
+    setConversations((list) => list.map((item) => (
+      item.id_conversa === updated.id_conversa ? updated : item
+    )));
+  }
+
+  async function handleAssignUser(targetUserId) {
+    if (!selected || !targetUserId) return;
+    setBusy(true);
+    setError('');
+    try {
+      let attendanceId = selected.atendimento_aberto?.id_atendimento;
+      if (!attendanceId) {
+        const opened = await openAttendance(selected.id_conversa);
+        attendanceId = opened.data.id_atendimento;
+      }
+      await addAssignment(attendanceId, Number(targetUserId));
+      await refreshSelectedConversation(selected.id_conversa);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRemoveAssignment(assignmentId) {
+    if (!selected) return;
+    setBusy(true);
+    setError('');
+    try {
+      await closeAssignment(assignmentId);
+      await refreshSelectedConversation(selected.id_conversa);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -371,6 +432,13 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
                       : ''}
                     </span>
                   </div>
+                  {isAdmin && (
+                    <em className="conv-assignee">
+                      {conversation.responsaveis_ativos?.length
+                        ? `Atendente: ${conversation.responsaveis_ativos.map((r) => r.nome).join(', ')}`
+                        : 'Sem atendente atribuído'}
+                    </em>
+                  )}
                 </div>
               </button>
             ))}
@@ -416,10 +484,17 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
                     key={message.id_mensagem}
                     ref={focusMessage}
                     data-message-id={message.id_mensagem}
-                    className={`message ${message.origem === 'contato' ? 'received' : 'sent'}`}
+                    className={`message ${message.origem === 'contato' ? 'received' : 'sent'} ${message.origem === 'chatbot' ? 'chatbot' : ''}`}
                   >
-                    {message.conteudo || `[${message.tipo}]`}
-                    <small>{displayDate(message.data_hora)}</small>
+                    <span className="message-body">{message.conteudo || `[${message.tipo}]`}</span>
+                    <small>
+                      {message.origem === 'chatbot'
+                        ? 'Automática · '
+                        : message.nome_usuario
+                          ? `${message.nome_usuario} · `
+                          : ''}
+                      {displayDate(message.data_hora)}
+                    </small>
                   </div>
                 ))}
               </div>
@@ -470,6 +545,71 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
                   <span>E-mail</span>
                   <strong>{selected.email || 'Não informado'}</strong>
                 </div>
+              </div>
+              <div className="customer-section">
+                <h4>Responsáveis</h4>
+                <div className="assignees-list">
+                  {selected.responsaveis_ativos?.length ? (
+                    selected.responsaveis_ativos.map((assignment) => (
+                      <span className="assignee-chip" key={assignment.id_atribuicao}>
+                        <UserCheck size={14} />
+                        <span>{assignment.nome}</span>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="chip-remove"
+                            aria-label={`Remover atribuição de ${assignment.nome}`}
+                            disabled={busy}
+                            onClick={() => handleRemoveAssignment(assignment.id_atribuicao)}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="empty-inline">Nenhum atendente atribuído.</p>
+                  )}
+                </div>
+                {isAdmin && (
+                  <div className="assignee-controls">
+                    {user && !selected.responsaveis_ativos?.some(
+                      (assignment) => assignment.FK_USUARIO_id_usuario === user.id_usuario,
+                    ) && (
+                      <button
+                        type="button"
+                        className="secondary-btn"
+                        disabled={busy}
+                        onClick={() => handleAssignUser(user.id_usuario)}
+                      >
+                        Assumir conversa
+                      </button>
+                    )}
+                    <label className="label-select">
+                      <UserCheck size={15} />
+                      <select
+                        defaultValue=""
+                        disabled={busy}
+                        onChange={(event) => {
+                          const targetId = Number(event.currentTarget.value);
+                          event.currentTarget.value = '';
+                          if (targetId) handleAssignUser(targetId);
+                        }}
+                      >
+                        <option value="">Atribuir para...</option>
+                        {teamUsers
+                          .filter((member) => !selected.responsaveis_ativos?.some(
+                            (assignment) => assignment.FK_USUARIO_id_usuario === member.id_usuario,
+                          ))
+                          .map((member) => (
+                            <option value={member.id_usuario} key={member.id_usuario}>
+                              {member.nome} ({member.perfil})
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </div>
+                )}
               </div>
               <div className="customer-section">
                 <h4>Etiquetas</h4>

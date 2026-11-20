@@ -1,5 +1,9 @@
 import type { Pool, PoolConnection } from 'mysql2/promise';
 import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import {
+  AutoReplyConfigService,
+  isWithinBusinessHours,
+} from './auto-reply-config.js';
 import type { WhatsAppClient } from './whatsapp.js';
 
 const DUPLICATE_ENTRY = 'ER_DUP_ENTRY';
@@ -87,21 +91,35 @@ async function ensureContactConversation(connection: PoolConnection, phone: stri
   };
 }
 
-async function ensureOpenAttendance(connection: PoolConnection, conversationId: number): Promise<number> {
+async function ensureOpenAttendance(
+  connection: PoolConnection,
+  conversationId: number,
+): Promise<{ attendanceId: number; startedAt: string; isNew: boolean }> {
   const [rows] = await connection.execute<RowDataPacket[]>(
-    `SELECT id_atendimento FROM ATENDIMENTO
+    `SELECT id_atendimento, iniciado_em FROM ATENDIMENTO
      WHERE FK_CONVERSA_id_conversa = ? AND encerrado_em IS NULL
      ORDER BY id_atendimento DESC LIMIT 1 FOR UPDATE`,
     [conversationId],
   );
-  if (rows.length) return rows[0].id_atendimento;
+  if (rows.length) {
+    return {
+      attendanceId: Number(rows[0].id_atendimento),
+      startedAt: String(rows[0].iniciado_em ?? mysqlDateTime(new Date())),
+      isNew: false,
+    };
+  }
 
+  const startedAt = mysqlDateTime(new Date());
   const [result] = await connection.execute<ResultSetHeader>(
     `INSERT INTO ATENDIMENTO (status, iniciado_em, encerrado_em, FK_CONVERSA_id_conversa)
      VALUES ('open', UTC_TIMESTAMP(), NULL, ?)`,
     [conversationId],
   );
-  return result.insertId;
+  return {
+    attendanceId: Number(result.insertId),
+    startedAt,
+    isNew: true,
+  };
 }
 
 // Responsável ativo = atribuição aberta de um usuário que ainda está ativo.
@@ -112,12 +130,82 @@ const ACTIVE_RESPONSIBLE_SQL = `
     AND r.encerrada_em IS NULL AND u.ativo = TRUE
   LIMIT 1`;
 
+// Atendente online = usuário com perfil 'atendente', ativo e sessão JWT válida em AUTH_SESSAO.
+const ONLINE_ATTENDANT_CONDITION = `
+  u.perfil = 'atendente'
+  AND u.ativo = TRUE
+  AND EXISTS (
+    SELECT 1 FROM AUTH_SESSAO s
+    WHERE s.FK_USUARIO_id_usuario = u.id_usuario
+      AND s.revogada_em IS NULL
+      AND s.expira_em > UTC_TIMESTAMP()
+  )`;
+
+export async function hasOnlineAttendants(db: Pool): Promise<boolean> {
+  const [rows] = await db.execute<RowDataPacket[]>(
+    `SELECT u.id_usuario FROM USUARIO u
+     WHERE ${ONLINE_ATTENDANT_CONDITION}
+     LIMIT 1`,
+  );
+  return rows.length > 0;
+}
+
+export function normalizeLabelText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/^[\s\-•*]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase('pt-BR');
+}
+
 /**
- * Rodízio automático: atribui o atendimento ao atendente ativo cuja última
- * atribuição é a mais antiga (ou que nunca recebeu). Retorna o id do usuário
- * escolhido, ou null se não havia nada a fazer.
+ * Vincula automaticamente à conversa uma etiqueta já cadastrada cujo nome
+ * corresponda ao texto enviado pelo cliente (comparação sem acentos/maiúsculas).
  */
-export async function assignByRotation(db: Pool, attendanceId: number): Promise<number | null> {
+export async function linkMatchingLabel(
+  db: Pool,
+  conversationId: number,
+  messageText: string | null,
+): Promise<number | null> {
+  if (!messageText) return null;
+  const normalized = normalizeLabelText(messageText);
+  if (!normalized) return null;
+
+  const [labels] = await db.execute<RowDataPacket[]>(
+    'SELECT id_etiqueta, nome FROM ETIQUETA ORDER BY id_etiqueta ASC',
+  );
+  const match = labels.find((label) => normalizeLabelText(String(label.nome)) === normalized);
+  if (!match) return null;
+
+  const labelId = Number(match.id_etiqueta);
+  await db.execute(
+    `INSERT INTO marca (fk_ETIQUETA_id_etiqueta, fk_CONVERSA_id_conversa)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE fk_CONVERSA_id_conversa = VALUES(fk_CONVERSA_id_conversa)`,
+    [labelId, conversationId],
+  );
+  return labelId;
+}
+
+export interface RotationOptions {
+  isBusinessHours?: boolean;
+}
+
+/**
+ * Rodízio automático: atribui o atendimento ao atendente ativo e online
+ * (sessão válida em AUTH_SESSAO) cuja última atribuição é a mais antiga
+ * (ou que nunca recebeu), somente em horário comercial ativo.
+ * Retorna o id do usuário escolhido, ou null se não havia nada a fazer.
+ */
+export async function assignByRotation(
+  db: Pool,
+  attendanceId: number,
+  options: RotationOptions = {},
+): Promise<number | null> {
+  if (options.isBusinessHours === false) return null;
+
   // Verificação barata fora da transação: o caso comum é já haver responsável.
   const [quick] = await db.execute<RowDataPacket[]>(ACTIVE_RESPONSIBLE_SQL, [attendanceId]);
   if (quick.length) return null;
@@ -138,11 +226,11 @@ export async function assignByRotation(db: Pool, attendanceId: number): Promise<
     );
     if (alreadyAssigned.length) return null;
 
-    // Bloqueia os elegíveis em ordem fixa: só um rodízio decide por vez.
+    // Bloqueia os elegíveis (atendentes ativos e online) em ordem fixa: só um rodízio decide por vez.
     const [eligible] = await connection.execute<RowDataPacket[]>(
-      `SELECT id_usuario FROM USUARIO
-       WHERE perfil = 'atendente' AND ativo = TRUE
-       ORDER BY id_usuario FOR UPDATE`,
+      `SELECT u.id_usuario FROM USUARIO u
+       WHERE ${ONLINE_ATTENDANT_CONDITION}
+       ORDER BY u.id_usuario FOR UPDATE`,
     );
     if (!eligible.length) return null;
 
@@ -152,10 +240,11 @@ export async function assignByRotation(db: Pool, attendanceId: number): Promise<
               (SELECT MAX(a.id_atribuicao) FROM ATRIBUICAO a
                WHERE a.FK_USUARIO_id_usuario = u.id_usuario) AS ultima
        FROM USUARIO u
-       WHERE u.perfil = 'atendente' AND u.ativo = TRUE
+       WHERE ${ONLINE_ATTENDANT_CONDITION}
        ORDER BY COALESCE(ultima, 0) ASC, u.id_usuario ASC
        LIMIT 1`,
     );
+    if (!next.length) return null;
     const userId = Number(next[0].id_usuario);
     await connection.execute(
       `INSERT INTO ATRIBUICAO
@@ -306,6 +395,11 @@ export class MessageService {
     private readonly db: Pool,
     private readonly whatsappClient: WhatsAppClient,
     private readonly logger: Pick<Console, 'error' | 'warn'> = console,
+    private readonly autoReplyConfig: AutoReplyConfigService = new AutoReplyConfigService(process.env, null),
+    private readonly timezoneProvider: { get(): Promise<{ fuso_horario: string }> } = {
+      get: async () => ({ fuso_horario: 'America/Sao_Paulo' }),
+    },
+    private readonly nowProvider: () => Date = () => new Date(),
   ) {
   }
 
@@ -336,7 +430,7 @@ export class MessageService {
         ({ conversationId: targetConversationId } = await ensureContactConversation(connection, targetPhone));
       }
       if (!targetPhone) throw new Error('The conversation has no contact phone number.');
-      const attendanceId = await ensureOpenAttendance(connection, targetConversationId);
+      const { attendanceId } = await ensureOpenAttendance(connection, targetConversationId);
       const [result] = await connection.execute<ResultSetHeader>(
         `INSERT INTO MENSAGEM
            (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario)
@@ -537,12 +631,110 @@ export class MessageService {
     return rows[0];
   }
 
+  async sendAutoReply({
+    conversationId,
+    phone,
+    text,
+  }: { conversationId: number; phone: string; text: string }): Promise<{
+    id_mensagem: number;
+    status: string;
+  }> {
+    const messageId = await inTransaction(this.db, async (connection) => {
+      const [result] = await connection.execute<ResultSetHeader>(
+        `INSERT INTO MENSAGEM
+           (data_hora, conteudo, origem, status, tipo, FK_CONVERSA_id_conversa, FK_USUARIO_id_usuario)
+         VALUES (UTC_TIMESTAMP(), ?, 'chatbot', 'pending', 'text', ?, NULL)`,
+        [text, conversationId],
+      );
+      await insertStatusHistory(
+        connection,
+        result.insertId,
+        'pending',
+        mysqlDateTime(new Date()),
+      );
+      return Number(result.insertId);
+    });
+
+    if (!this.whatsappClient.accessToken || !this.whatsappClient.phoneNumberId || !this.whatsappClient.graphApiVersion) {
+      this.logger.warn('WhatsApp sending is not configured; automatic reply saved locally as pending.');
+      return { id_mensagem: messageId, status: 'pending' };
+    }
+
+    let providerMessageId: string;
+    try {
+      providerMessageId = await this.whatsappClient.sendTextMessage(phone, text);
+    } catch (error) {
+      const details = isRecord(error) ? error : {};
+      this.logger.error('WhatsApp provider rejected automatic reply.', {
+        httpStatus: Number.isInteger(details.statusCode) ? details.statusCode : null,
+        providerCode: Number.isInteger(details.providerCode) ? details.providerCode : null,
+        providerSubcode: Number.isInteger(details.providerSubcode) ? details.providerSubcode : null,
+        networkCode: typeof details.code === 'string' ? details.code : null,
+      });
+      await inTransaction(this.db, async (connection) => {
+        await connection.execute(
+          'UPDATE MENSAGEM SET status = ? WHERE id_mensagem = ?',
+          ['failed', messageId],
+        );
+        await insertStatusHistory(
+          connection,
+          messageId,
+          'failed',
+          mysqlDateTime(new Date()),
+          'WhatsApp auto-reply send failed.',
+        );
+      });
+      return { id_mensagem: messageId, status: 'failed' };
+    }
+
+    const finalStatus = await inTransaction(this.db, async (connection) => {
+      await connection.execute(
+        `UPDATE MENSAGEM SET id_externo = ?, status = 'sent' WHERE id_mensagem = ?`,
+        [providerMessageId, messageId],
+      );
+      let currentStatus = 'sent';
+      await insertStatusHistory(
+        connection,
+        messageId,
+        'sent',
+        mysqlDateTime(new Date()),
+      );
+      const [pendingStatuses] = await connection.execute<RowDataPacket[]>(
+        `SELECT status, ocorrido_em, detalhe_erro FROM WHATSAPP_STATUS_PENDENTE
+         WHERE id_externo = ? ORDER BY ocorrido_em, id_pendente FOR UPDATE`,
+        [providerMessageId],
+      );
+      for (const event of pendingStatuses) {
+        currentStatus = await applyStatusEvent(connection, messageId, currentStatus, {
+          status: String(event.status),
+          occurredAt: String(event.ocorrido_em),
+          detail: typeof event.detalhe_erro === 'string' ? event.detalhe_erro : null,
+        });
+      }
+      if (pendingStatuses.length) {
+        await connection.execute(
+          'DELETE FROM WHATSAPP_STATUS_PENDENTE WHERE id_externo = ?',
+          [providerMessageId],
+        );
+      }
+      return currentStatus;
+    });
+
+    return { id_mensagem: messageId, status: finalStatus };
+  }
+
   async processWebhook(payload: unknown) {
     if (!isRecord(payload) || payload.object !== 'whatsapp_business_account' || !Array.isArray(payload.entry)) {
       throw Object.assign(new Error('Invalid WhatsApp webhook payload.'), { status: 400 });
     }
     const entries: unknown[] = payload.entry;
-    const needsRotation = new Set<number>();
+    const incomingAttendances = new Map<number, {
+      attendanceId: number;
+      conversationId: number;
+      phone: string;
+      startedAt: string;
+      lastMessageText: string | null;
+    }>();
 
     const result = await inTransaction(this.db, async (connection) => {
       let messagesProcessed = 0;
@@ -610,11 +802,11 @@ export class MessageService {
             );
             if (existing.length) continue;
 
-            const attendanceId = Number(await ensureOpenAttendance(connection, conversationId));
+            const attendance = await ensureOpenAttendance(connection, conversationId);
             const { content, mediaReference } = extractMessageContent(message);
             const occurredAt = mysqlDateTime(fromMetaTimestamp(message.timestamp));
             try {
-              const [result] = await connection.execute<ResultSetHeader>(
+              const [insertResult] = await connection.execute<ResultSetHeader>(
                 `INSERT INTO MENSAGEM
                    (data_hora, conteudo, origem, status, referencia_midia, tipo,
                     id_externo, FK_CONVERSA_id_conversa)
@@ -628,9 +820,15 @@ export class MessageService {
                   conversationId,
                 ],
               );
-              await insertStatusHistory(connection, result.insertId, 'received', occurredAt);
+              await insertStatusHistory(connection, insertResult.insertId, 'received', occurredAt);
               messagesProcessed++;
-              needsRotation.add(attendanceId);
+              incomingAttendances.set(attendance.attendanceId, {
+                attendanceId: attendance.attendanceId,
+                conversationId: Number(conversationId),
+                phone,
+                startedAt: attendance.startedAt,
+                lastMessageText: message.type === 'text' ? content : null,
+              });
             } catch (error) {
               if (!isDuplicateEntry(error)) throw error;
             }
@@ -685,18 +883,136 @@ export class MessageService {
 
       return { messagesProcessed, statusesProcessed };
     });
-    
-    const assignedAttendances: Array<{ attendanceId: number; userId: number | null }> = [];
-    for (const attendanceId of needsRotation) {
+
+    const assignedAttendances: Array<{
+      attendanceId: number;
+      userId: number | null;
+      autoReply?: 'welcome' | 'unavailable' | null;
+      linkedLabelId?: number | null;
+    }> = [];
+
+    if (incomingAttendances.size > 0) {
+      const config = await this.autoReplyConfig.get();
+      let timeZone = 'America/Sao_Paulo';
       try {
-        const assignedUserId = await assignByRotation(this.db, attendanceId);
-        console.info('[rodizio]', { attendanceId, assignedUserId });
-        assignedAttendances.push({ attendanceId, userId: assignedUserId });
-      } catch (error) {
-        this.logger.error('Automatic assignment failed.', {
-          attendanceId,
-          code: isRecord(error) && typeof error.code === 'string' ? error.code : 'INTERNAL_ERROR',
-        });
+        const tzSettings = await this.timezoneProvider.get();
+        if (tzSettings?.fuso_horario) timeZone = tzSettings.fuso_horario;
+      } catch {
+        // Fallback para fuso padrão
+      }
+
+      for (const item of incomingAttendances.values()) {
+        try {
+          // 1. Se já existe responsável ativo no atendimento, conversa está em andamento.
+          const [activeResponsible] = await this.db.execute<RowDataPacket[]>(
+            ACTIVE_RESPONSIBLE_SQL,
+            [item.attendanceId],
+          );
+          if (activeResponsible.length) {
+            assignedAttendances.push({
+              attendanceId: item.attendanceId,
+              userId: null,
+              autoReply: null,
+              linkedLabelId: null,
+            });
+            continue;
+          }
+
+          // 2. Verifica histórico de respostas (humano ou chatbot) neste ciclo de atendimento.
+          const [contextRows] = await this.db.execute<RowDataPacket[]>(
+            `SELECT origem, conteudo FROM MENSAGEM
+             WHERE FK_CONVERSA_id_conversa = ?
+               AND data_hora >= ?
+               AND origem IN ('usuario', 'chatbot')
+             ORDER BY data_hora ASC, id_mensagem ASC`,
+            [item.conversationId, item.startedAt],
+          );
+
+          const hasHumanReply = contextRows.some((row) => row.origem === 'usuario');
+          if (hasHumanReply) {
+            // Conversa já respondida por humano (ex.: admin) — não reenvia menu automático.
+            assignedAttendances.push({
+              attendanceId: item.attendanceId,
+              userId: null,
+              autoReply: null,
+              linkedLabelId: null,
+            });
+            continue;
+          }
+
+          const inBusinessHours = isWithinBusinessHours(config, timeZone, this.nowProvider());
+          const onlineAttendants = await hasOnlineAttendants(this.db);
+          const botMessages = contextRows.filter((row) => row.origem === 'chatbot');
+          const welcomeAlreadySent = botMessages.some(
+            (row) => String(row.conteudo ?? '') === config.mensagem_boas_vindas,
+          );
+          const unavailableAlreadySent = botMessages.some(
+            (row) => String(row.conteudo ?? '') === config.mensagem_indisponivel,
+          );
+
+          if (!inBusinessHours || !onlineAttendants) {
+            let autoReply: 'unavailable' | null = null;
+            if (!unavailableAlreadySent && !welcomeAlreadySent) {
+              await this.sendAutoReply({
+                conversationId: item.conversationId,
+                phone: item.phone,
+                text: config.mensagem_indisponivel,
+              });
+              autoReply = 'unavailable';
+            }
+            assignedAttendances.push({
+              attendanceId: item.attendanceId,
+              userId: null,
+              autoReply,
+              linkedLabelId: null,
+            });
+            continue;
+          }
+
+          if (!welcomeAlreadySent) {
+            // Primeira mensagem nova em horário comercial com atendente online:
+            // envia menu e aguarda a escolha do cliente antes de rodar o rodízio.
+            await this.sendAutoReply({
+              conversationId: item.conversationId,
+              phone: item.phone,
+              text: config.mensagem_boas_vindas,
+            });
+            assignedAttendances.push({
+              attendanceId: item.attendanceId,
+              userId: null,
+              autoReply: 'welcome',
+              linkedLabelId: null,
+            });
+            continue;
+          }
+
+          // Cliente respondeu após receber o menu: vincula etiqueta correspondente (se existir)
+          // e executa o rodízio automático entre os atendentes online.
+          const linkedLabelId = await linkMatchingLabel(
+            this.db,
+            item.conversationId,
+            item.lastMessageText,
+          );
+          const assignedUserId = await assignByRotation(this.db, item.attendanceId, {
+            isBusinessHours: true,
+          });
+          console.info('[rodizio]', {
+            attendanceId: item.attendanceId,
+            assignedUserId,
+            linkedLabelId,
+          });
+          assignedAttendances.push({
+            attendanceId: item.attendanceId,
+            userId: assignedUserId,
+            autoReply: null,
+            linkedLabelId,
+          });
+        } catch (error) {
+          this.logger.error('Automatic reply or assignment failed.', {
+            attendanceId: item.attendanceId,
+            code: isRecord(error) && typeof error.code === 'string' ? error.code : 'INTERNAL_ERROR',
+          });
+        }
       }
     }
 

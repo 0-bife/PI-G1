@@ -9,6 +9,17 @@ export interface User {
   ativo: boolean;
 }
 
+export interface Assignment {
+  id_atribuicao: number;
+  iniciada_em: string;
+  encerrada_em: string | null;
+  FK_USUARIO_id_usuario: number;
+  nome: string;
+  email: string;
+  perfil: 'admin' | 'atendente';
+  FK_ATENDIMENTO_id_atendimento: number;
+}
+
 export interface Conversation {
   id_conversa: number;
   telefone: string;
@@ -16,7 +27,13 @@ export interface Conversation {
   email?: string | null;
   criada_em: string;
   ultima_mensagem_em: string | null;
-  atendimento_aberto?: { status: string | null } | null;
+  atendimento_aberto?: {
+    id_atendimento?: number;
+    status: string | null;
+    iniciado_em?: string | null;
+    prazo_retorno?: string | null;
+  } | null;
+  responsaveis_ativos?: Assignment[];
 }
 
 export interface Message {
@@ -65,6 +82,14 @@ export interface BusinessSettings {
   email_contato: string;
   fuso_horario: string;
   numero_conta: string | null;
+}
+
+export interface AttendanceSettings {
+  horario_ativo: boolean;
+  horario_inicio: string;
+  horario_fim: string;
+  mensagem_boas_vindas: string;
+  mensagem_indisponivel: string;
 }
 
 interface UserPage {
@@ -181,6 +206,28 @@ export function getConversations(page = 1, limit = 20): Promise<Page<Conversatio
   return request<Page<Conversation>>(`/api/conversas?${queryPage(page, limit)}`);
 }
 
+export function getConversation(id: number): Promise<{ data: Conversation }> {
+  return request<{ data: Conversation }>(`/api/conversas/${id}`);
+}
+
+export function openAttendance(conversationId: number): Promise<{ data: { id_atendimento: number; status: string } }> {
+  return request<{ data: { id_atendimento: number; status: string } }>(
+    `/api/conversas/${conversationId}/atendimentos`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+export function addAssignment(attendanceId: number, usuarioId: number): Promise<{ data: Assignment } | undefined> {
+  return request<{ data: Assignment } | undefined>(
+    `/api/atendimentos/${attendanceId}/atribuicoes`,
+    { method: 'POST', body: JSON.stringify({ usuarioId }) },
+  );
+}
+
+export function closeAssignment(assignmentId: number): Promise<void> {
+  return request<void>(`/api/atribuicoes/${assignmentId}`, { method: 'DELETE' });
+}
+
 export function searchConversations(query: string, limit = 50): Promise<{ data: ConversationSearchResult }> {
   const params = new URLSearchParams({ q: query.trim(), limit: String(limit) });
   return request<{ data: ConversationSearchResult }>(`/api/busca/conversas?${params.toString()}`);
@@ -251,6 +298,19 @@ export function updateBusinessSettings(input: Pick<BusinessSettings, 'nome_perfi
       email_contato: input.email_contato,
       fuso_horario: input.fuso_horario,
     }),
+  });
+}
+
+export function getAttendanceSettings(): Promise<{ data: AttendanceSettings }> {
+  return request<{ data: AttendanceSettings }>('/api/configuracoes/atendimento');
+}
+
+export function updateAttendanceSettings(
+  input: Partial<AttendanceSettings>,
+): Promise<{ data: AttendanceSettings }> {
+  return request<{ data: AttendanceSettings }>('/api/configuracoes/atendimento', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
   });
 }
 

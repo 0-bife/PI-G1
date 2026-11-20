@@ -26,6 +26,8 @@ As rotas autenticadas de configurações são:
 | --- | --- |
 | `GET /api/configuracoes/perfil` | Retorna nome do perfil, e-mail, fuso horário e o número da conta somente para leitura. |
 | `PATCH /api/configuracoes/perfil` | Somente admin; aceita `nome_perfil`, `email_contato` e `fuso_horario` (identificador IANA). O número da conta não pode ser alterado pela aplicação. |
+| `GET /api/configuracoes/atendimento` | Autenticado; retorna configuração de horário comercial (`horario_ativo`, `horario_inicio`, `horario_fim`) e textos das respostas automáticas (`mensagem_boas_vindas`, `mensagem_indisponivel`). |
+| `PATCH /api/configuracoes/atendimento` | Somente admin; atualiza horário comercial (`HH:MM`, padrão `10:00`–`22:00`) e mensagens automáticas sem alterar o esquema do banco (persiste em JSON local configurável por `AUTO_REPLY_CONFIG_PATH`). |
 | `GET /api/usuarios` | Somente admin; lista usuários sem hashes de senha. |
 | `POST /api/usuarios` | Somente admin; cria usuário com nome, e-mail, perfil e senha inicial. |
 | `PATCH /api/usuarios/:id` | Somente admin; altera nome, e-mail, perfil ou status. |
@@ -34,7 +36,7 @@ As rotas autenticadas de configurações são:
 | `PATCH /api/auth/password` | Qualquer usuário altera a própria senha informando a senha atual; revoga todas as sessões. |
 | `GET/POST/PATCH/DELETE /api/etiquetas...` | Lista, cria, altera e exclui etiquetas. A exclusão remove somente as linhas das tabelas associativas `classifica` e `marca`, nunca conversas ou contatos. |
 
-Integrações e mensagens automáticas permanecem reservadas para uma versão futura. A opção de telefone do perfil é somente informativa: o número da conta não possui rota de alteração.
+Integrações permanecem reservadas para uma versão futura. As **mensagens automáticas e o horário comercial** são configuráveis via `/api/configuracoes/atendimento` (somente admin pode alterar) e persistidas em arquivo JSON local (`backend/data/auto-reply-config.json` por padrão, ou `AUTO_REPLY_CONFIG_PATH`), sem necessidade de alterações no banco de dados. A opção de telefone do perfil é somente informativa: o número da conta não possui rota de alteração.
 Quando a tabela de configurações ainda não tiver uma linha, `WHATSAPP_ACCOUNT_NUMBER` fornece o número exibido como informação de conta; ele nunca é aceito no body de atualização.
 
 ## Autenticação JWT atual
@@ -251,7 +253,14 @@ Resposta `200`:
 - **Contato/conversa automáticos:** ao receber mensagem de telefone ainda desconhecido, criar contato com esse número e, em seguida, sua conversa. Se o perfil da Meta trouxer nome, armazená-lo; se não trouxer, o contato pode ficar somente com o telefone. Ao enviar mensagem para número sem contato, fazer o mesmo antes de enviar. Reutilizar sempre o contato/conversa existentes para aquele telefone; nunca criar duplicatas.
 - Cada contato tem no máximo uma conversa persistente; cada conversa pertence a exatamente um contato. Uma conversa contém várias mensagens, cada uma pertencente a exatamente uma conversa.
 - Uma conversa pode ter vários ciclos de atendimento. Mensagem recebida inicia novo atendimento se não houver atendimento aberto; atendimento encerrado não é reaberto.
-- **Responsáveis:** vários usuários podem estar ativos simultaneamente no mesmo atendimento. A atribuição ativa com `iniciada_em` mais recente tem prioridade; adicionar um responsável não encerra os outros. Remover acompanhamento preenche `encerrada_em`, preservando histórico. Esta regra segue `BD/detalhes_bd` e conflita com RN02 de `doc/requisitos.md` (um responsável por conversa); o requisito deve ser atualizado para refletir esta decisão.
+- **Responsáveis e rodízio automático:** vários usuários podem estar ativos simultaneamente no mesmo atendimento. A atribuição ativa com `iniciada_em` mais recente tem prioridade; adicionar um responsável não encerra os outros. Remover acompanhamento preenche `encerrada_em`, preservando histórico.
+  - **Atendentes online:** o rodízio considera elegíveis somente usuários com `perfil = 'atendente'`, `ativo = TRUE` e sessão JWT válida em `AUTH_SESSAO` (`revogada_em IS NULL AND expira_em > UTC_TIMESTAMP()`).
+  - **Resposta automática contextual e rodízio:** ao receber uma nova mensagem via webhook em atendimento ainda sem responsável nem resposta humana:
+    - Dentro do horário comercial configurado (padrão `10:00`–`22:00` no fuso horário de `CONFIGURACAO.fuso_horario`) e com ao menos um atendente online, a primeira mensagem recebe a resposta automática de boas-vindas (`origem = 'chatbot'`, `FK_USUARIO_id_usuario = NULL`) sem atribuir ainda; quando o cliente responde a opção, etiquetas cadastradas com o mesmo texto (comparação sem acentos/maiúsculas, ex.: `Informações Gerais`, `Pedidos Online`) são vinculadas automaticamente à conversa (`marca`) e o rodízio atribui o atendimento a um atendente online via `ATRIBUICAO`.
+    - Fora do horário comercial ou sem atendentes online, o cliente recebe a mensagem de indisponibilidade (uma única vez por atendimento) e nenhuma atribuição é criada.
+    - Em conversas já em andamento (com responsável ativo ou resposta humana no atendimento atual), nenhuma resposta automática é reenviada.
+  - **Permissões de administrador:** administradores visualizam todas as conversas, mensagens e responsáveis ativos; podem atribuir conversas para si ou para outros usuários ativos (`POST /api/atendimentos/:id/atribuicoes`), encerrar atribuições (`DELETE /api/atribuicoes/:id`) e responder conversas atribuídas a outro atendente (`POST /api/conversas/:id/mensagens`) sem alterar a atribuição existente.
+  - **Busca com escopo:** `GET /api/busca/conversas` restringe tanto conversas quanto mensagens retornadas às atribuições ativas do atendente autenticado (administradores mantêm visão global).
 - Etiquetas comuns associam contatos ou conversas a `ETIQUETA`. Acompanhar como funcionário é uma `ATRIBUICAO`, não uma etiqueta.
 - Anotações pertencem à conversa, têm autor funcionário e nunca são enviadas ao WhatsApp.
 - `MENSAGEM.status` representa o estado atual; cada mudança de status recebida da Meta também é gravada em `MENSAGEM_STATUS_HISTORICO`.
@@ -394,6 +403,9 @@ WHATSAPP_PHONE_NUMBER_ID=
 WHATSAPP_VERIFY_TOKEN=
 WHATSAPP_APP_SECRET=
 WHATSAPP_API_VERSION=
+BUSINESS_HOURS_START=10:00
+BUSINESS_HOURS_END=22:00
+AUTO_REPLY_CONFIG_PATH=
 ```
 
 Gere `JWT_SECRET` com pelo menos 32 bytes aleatórios e configure-o em armazenamento de segredos na Azure. Defina `WHATSAPP_API_VERSION` para uma versão Graph ainda suportada pela aplicação Meta. `JWT_SECRET`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET` e `WHATSAPP_VERIFY_TOKEN` são segredos; nunca os versione nem registre em logs ou respostas.
