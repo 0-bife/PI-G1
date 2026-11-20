@@ -386,7 +386,10 @@ export class ConversationService {
     });
   }
 
-  async updateAttendance(id: number, input: AttendanceUpdate): Promise<'not-found' | 'closed' | boolean> {
+  async updateAttendance(
+    id: number,
+    input: AttendanceUpdate,
+  ): Promise<'not-found' | 'reopen-window-expired' | 'already-open' | boolean> {
     return inTransaction(this.db, async (connection) => {
       const [rows] = await connection.execute<AttendanceRow[]>(
         `SELECT id_atendimento, status, iniciado_em, encerrado_em, prazo_retorno,
@@ -396,10 +399,42 @@ export class ConversationService {
       );
       const attendance = rows[0];
       if (!attendance) return 'not-found';
-      if (attendance.encerrado_em !== null && input.status === 'open') return 'closed';
       const changes: string[] = [];
       const values: (string | null)[] = [];
-      if (input.status === 'closed') {
+      if (attendance.encerrado_em !== null && input.status === 'open') {
+        const [otherOpen] = await connection.execute<RowDataPacket[]>(
+          `SELECT id_atendimento FROM ATENDIMENTO
+           WHERE FK_CONVERSA_id_conversa = ? AND encerrado_em IS NULL AND id_atendimento <> ?
+           LIMIT 1 FOR UPDATE`,
+          [attendance.FK_CONVERSA_id_conversa, id],
+        );
+        if (otherOpen.length) return 'already-open';
+
+        const [windowRows] = await connection.execute<RowDataPacket[]>(
+          `SELECT MIN(m.data_hora) AS primeira_mensagem_cliente,
+                  TIMESTAMPDIFF(
+                    SECOND,
+                    COALESCE(MIN(m.data_hora), ?),
+                    UTC_TIMESTAMP()
+                  ) AS segundos_desde_primeira_mensagem
+           FROM MENSAGEM m
+           WHERE m.FK_CONVERSA_id_conversa = ?
+             AND m.origem = 'contato'
+             AND m.data_hora >= ?
+             AND m.data_hora <= ?`,
+          [
+            attendance.iniciado_em,
+            attendance.FK_CONVERSA_id_conversa,
+            attendance.iniciado_em,
+            attendance.encerrado_em,
+          ],
+        );
+        const elapsedSeconds = Number(windowRows[0]?.segundos_desde_primeira_mensagem ?? 0);
+        if (!Number.isFinite(elapsedSeconds) || elapsedSeconds > 24 * 60 * 60) {
+          return 'reopen-window-expired';
+        }
+        changes.push("status = 'open'", 'encerrado_em = NULL');
+      } else if (input.status === 'closed') {
         changes.push("status = 'closed'", 'encerrado_em = COALESCE(encerrado_em, UTC_TIMESTAMP())');
       } else if (input.status === 'open') {
         changes.push("status = 'open'");
@@ -565,10 +600,23 @@ export class ConversationService {
     const [rows] = await this.db.execute<RowDataPacket[]>(
       `SELECT 1 FROM ATENDIMENTO a
       JOIN ATRIBUICAO r ON r.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
-      WHERE a.FK_CONVERSA_id_conversa = ? AND a.encerrado_em IS NULL
+      WHERE a.FK_CONVERSA_id_conversa = ?
+        AND (a.encerrado_em IS NULL OR a.encerrado_em >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR))
         AND r.FK_USUARIO_id_usuario = ? AND r.encerrada_em IS NULL
       LIMIT 1`,
       [conversationId, userId],
+    );
+    return rows.length > 0;
+  }
+
+  async userCanAccessAttendance(userId: number, attendanceId: number): Promise<boolean> {
+    const [rows] = await this.db.execute<RowDataPacket[]>(
+      `SELECT 1 FROM ATENDIMENTO a
+      JOIN ATRIBUICAO r ON r.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
+      WHERE a.id_atendimento = ?
+        AND r.FK_USUARIO_id_usuario = ? AND r.encerrada_em IS NULL
+      LIMIT 1`,
+      [attendanceId, userId],
     );
     return rows.length > 0;
   }

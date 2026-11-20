@@ -104,10 +104,12 @@ export function createApp(
   }
 
   async function assertAttendanceAccess(req: Request, attendanceId: number): Promise<void> {
-    if (isAdmin(req)) return;
-    const conversationId = await conversations.conversationIdOfAttendance(attendanceId);
-    if (conversationId === null) throw notFound('Attendance not found.');
-    await assertConversationAccess(req, conversationId);
+    const user = req.authenticatedUser;
+    if (!user) throw new AuthenticationError();
+    if (user.perfil === 'admin') return;
+    if (!(await conversations.userCanAccessAttendance(user.id_usuario, attendanceId))) {
+      throw notFound('Attendance not found.');
+    }
   }
 
   async function assertAssignmentAccess(req: Request, assignmentId: number): Promise<void> {
@@ -588,7 +590,14 @@ export function createApp(
       ...(deadline !== undefined ? { prazo_retorno: deadline } : {}),
     });
     if (result === 'not-found') return res.status(404).json({ error: 'Attendance not found.' });
-    if (result === 'closed') return res.status(409).json({ error: 'A closed attendance cannot be reopened.' });
+    if (result === 'reopen-window-expired') {
+      return res.status(409).json({
+        error: 'O atendimento só pode ser reaberto em até 24 horas após a primeira mensagem do cliente.',
+      });
+    }
+    if (result === 'already-open') {
+      return res.status(409).json({ error: 'Conversation already has an open attendance.' });
+    }
     return res.status(204).end();
   });
   app.get('/api/atendimentos/:id/atribuicoes', async (req: Request, res: Response) => {

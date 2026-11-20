@@ -330,7 +330,7 @@ Resposta `200`:
 | `GET /api/conversas/:id/mensagens?page=1&limit=20` | Autenticado | Lista mensagens cronologicamente por `data_hora`. |
 | `GET /api/conversas/:id/atendimentos` | Autenticado | Lista ciclos, mais recente primeiro, e suas atribuições. |
 | `POST /api/conversas/:id/atendimentos` | Atendente/admin | Body vazio; abre ciclo (`status: "open"`, `iniciado_em` atual); conflito se já houver um aberto. O bloqueio transacional da conversa serializa aberturas concorrentes. |
-| `PATCH /api/atendimentos/:id` | Atendente/admin | Altera status (`open`/`closed`) e/ou `prazo_retorno` RFC 3339 (ou `null`); encerrar grava `encerrado_em` atual. Ciclo encerrado não é reaberto; cria-se outro. |
+| `PATCH /api/atendimentos/:id` | Atendente atribuído/admin | Altera status (`open`/`closed`) e/ou `prazo_retorno` RFC 3339 (ou `null`). Encerrar (`closed`) grava `encerrado_em` atual; reabrir (`open`) é permitido apenas dentro da janela de **24 horas desde a primeira mensagem do cliente** no atendimento (e se não houver outro atendimento aberto na conversa), limpando `encerrado_em` — fora da janela retorna `409`. |
 | `GET /api/atendimentos/:id/atribuicoes` | Autenticado | Lista atribuições ativas e encerradas; prioridade é a ativa mais recente. |
 | `POST /api/atendimentos/:id/atribuicoes` | Atendente/admin | Body `{ "usuarioId": 45 }`; cria acompanhamento para usuário ativo. Retorna `201` ao criar e `204` se a atribuição já estiver ativa, sem duplicar nem mudar prioridade. Vários responsáveis podem permanecer ativos simultaneamente. |
 | `DELETE /api/atribuicoes/:id` | Atendente/admin | Encerra atribuição preenchendo `encerrada_em`, não apaga a linha. |

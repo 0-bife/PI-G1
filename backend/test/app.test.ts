@@ -481,29 +481,86 @@ test('opening an attendance creates a cycle and rejects a second open cycle', as
   assert.equal(duplicate.status, 409);
 });
 
-test('attendance close is persisted and a closed cycle cannot be reopened', async () => {
+test('attendance close is persisted and reopening is allowed only within 24h from first customer message', async () => {
   let closed = false;
+  let elapsedSeconds = 3600; // 1h dentro da janela de 24h
   const request = await fixture(async (sql, values) => {
     if (sql.includes('SELECT id_atendimento, status, iniciado_em')) {
       return [[{
         id_atendimento: 22,
         status: closed ? 'closed' : 'open',
-        iniciado_em: '2026-01-02 10:00:00',
-        encerrado_em: closed ? '2026-01-02 11:00:00' : null,
+        iniciado_em: '2026-11-20 10:00:00',
+        encerrado_em: closed ? '2026-11-20 11:00:00' : null,
         prazo_retorno: null,
         FK_CONVERSA_id_conversa: 12,
       }], []];
     }
+    if (sql.includes('encerrado_em IS NULL AND id_atendimento <> ?')) {
+      return [[], []];
+    }
+    if (sql.includes('segundos_desde_primeira_mensagem')) {
+      return [[{
+        primeira_mensagem_cliente: '2026-11-20 10:05:00',
+        segundos_desde_primeira_mensagem: elapsedSeconds,
+      }], []];
+    }
     if (sql.startsWith('UPDATE ATENDIMENTO')) {
-      assert.match(sql, /status = 'closed'/);
-      assert.deepEqual(values, [22]);
-      closed = true;
+      if (sql.includes("status = 'closed'")) {
+        assert.deepEqual(values, [22]);
+        closed = true;
+      } else {
+        assert.match(sql, /status = 'open', encerrado_em = NULL/);
+        assert.deepEqual(values, [22]);
+        closed = false;
+      }
       return [{ affectedRows: 1 }, []];
     }
     throw new Error(`Unexpected test SQL: ${sql}`);
   });
+
+  // Encerrar manualmente
   assert.equal((await request('/api/atendimentos/22', json({ status: 'closed' }, 'PATCH'))).status, 204);
-  assert.equal((await request('/api/atendimentos/22', json({ status: 'open' }, 'PATCH'))).status, 409);
+  // Reabrir dentro da janela de 24h
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'open' }, 'PATCH'))).status, 204);
+  // Encerrar novamente e tentar reabrir após 24h -> 409
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'closed' }, 'PATCH'))).status, 204);
+  elapsedSeconds = 24 * 60 * 60 + 1;
+  const expired = await request('/api/atendimentos/22', json({ status: 'open' }, 'PATCH'));
+  assert.equal(expired.status, 409);
+});
+
+test('assigned attendant can close and reopen attendance within 24h, while unassigned attendant gets 404', async () => {
+  let closed = false;
+  let assigned = true;
+  const request = await fixture(async (sql) => {
+    if (sql.includes('WHERE a.id_atendimento = ?') && sql.includes('r.FK_USUARIO_id_usuario = ?')) {
+      return [assigned ? [{ 1: 1 }] : [], []];
+    }
+    if (sql.includes('SELECT id_atendimento, status, iniciado_em')) {
+      return [[{
+        id_atendimento: 22,
+        status: closed ? 'closed' : 'open',
+        iniciado_em: '2026-11-20 10:00:00',
+        encerrado_em: closed ? '2026-11-20 11:00:00' : null,
+        prazo_retorno: null,
+        FK_CONVERSA_id_conversa: 12,
+      }], []];
+    }
+    if (sql.includes('encerrado_em IS NULL AND id_atendimento <> ?')) return [[], []];
+    if (sql.includes('segundos_desde_primeira_mensagem')) {
+      return [[{ primeira_mensagem_cliente: '2026-11-20 10:05:00', segundos_desde_primeira_mensagem: 1800 }], []];
+    }
+    if (sql.startsWith('UPDATE ATENDIMENTO')) {
+      closed = sql.includes("status = 'closed'");
+      return [{ affectedRows: 1 }, []];
+    }
+    throw new Error(`Unexpected test SQL: ${sql}`);
+  }, '', 'atendente');
+
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'closed' }, 'PATCH'))).status, 204);
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'open' }, 'PATCH'))).status, 204);
+  assigned = false;
+  assert.equal((await request('/api/atendimentos/22', json({ status: 'closed' }, 'PATCH'))).status, 404);
 });
 
 test('attendance deadlines reject invalid calendar dates before querying the database', async () => {

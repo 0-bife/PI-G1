@@ -62,7 +62,7 @@ Operações disponíveis:
 
 - `login(email, senha)` e `logout()`; `checkMe()` valida a sessão no carregamento.
 - `getConversations(page, limit)`, `getConversation(id)`, `searchConversations(query, limit)` e `createConversation(telefone)`.
-- `openAttendance(conversationId)`, `addAssignment(attendanceId, usuarioId)` e `closeAssignment(assignmentId)`.
+- `openAttendance(conversationId)`, `getConversationAttendances(conversationId, page, limit)`, `updateAttendanceStatus(attendanceId, status)`, `addAssignment(attendanceId, usuarioId)` e `closeAssignment(assignmentId)`.
 - `getConversationMessages(id, page, limit)` e `sendMessage(id, conteudo)`.
 - `getMessage(id)` carrega a mensagem específica para navegação a partir da busca.
 - `getConversationAnnotations(id, page, limit)` e `createAnnotation(id, texto)`.
@@ -75,6 +75,6 @@ Todas as funções rejeitam com `ApiError` em falhas HTTP; o `message` contém a
 
 A página **Dashboard** é visível apenas para usuários com perfil `admin` (atendentes são redirecionados para **Conversas** e não veem o item no menu lateral). Ela oferece filtros por **usuário/atendente**, **período** (todo o período, últimos 7 dias, últimos 30 dias ou intervalo personalizado) e **etiqueta**, exibindo **conversas totais**, **conversas ativas**, **tempo médio de atendimento** e **tempo médio de resposta** (após a mensagem automática inicial) em cards e em gráficos de seção de círculo (donut charts).
 
-Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave. Administradores visualizam o atendente atribuído em cada conversa, podem assumir a conversa, atribuí-la a outros usuários ativos, remover atribuições e responder conversas atribuídas a terceiros sem alterar a atribuição. Mensagens automáticas (`origem: "chatbot"`) são identificadas visualmente no histórico.
+Na página de conversas, a busca consulta `GET /api/busca/conversas` e exibe resultados de contatos/conversas e mensagens. Ao selecionar uma conversa, o chat é aberto; ao selecionar uma mensagem, a conversa é aberta, a mensagem é carregada caso esteja fora da página atual e o elemento recebe destaque com rolagem suave. Administradores e atendentes atribuídos podem encerrar manualmente o atendimento e reabri-lo dentro da janela de 24 horas desde a primeira mensagem do cliente. Administradores visualizam o atendente atribuído em cada conversa, podem assumir a conversa, atribuí-la a outros usuários ativos, remover atribuições e responder conversas atribuídas a terceiros sem alterar a atribuição. Mensagens automáticas (`origem: "chatbot"`) são identificadas visualmente no histórico.
 
 Na página de configurações, a aba **Mensagens automáticas** permite aos administradores ativar/desativar o horário comercial, configurar o intervalo (padrão `10:00`–`22:00`) e editar os textos de boas-vindas e de indisponibilidade.
