@@ -13,7 +13,7 @@ Pequenas empresas usam o WhatsApp como principal canal de comunicação com os c
 - **Autenticação** com JWT (12 horas) e sessões revogáveis: logout, troca de senha e desativação do usuário invalidam o token imediatamente.
 - **Perfis de acesso:** `admin` (gerencia usuários) e `atendente`.
 - **Conversas e mensagens** integradas ao WhatsApp: recebimento por webhook e envio de texto pela Graph API.
-- **Atendimentos** com ciclos (abrir e encerrar), prazo de retorno, **rodízio automático entre atendentes online em horário comercial configurável** (padrão `10:00`–`22:00`) e gestão manual de responsáveis por administradores (incluindo assumir, atribuir a terceiros e responder sem alterar a atribuição).
+- **Atendimentos** com ciclos (abrir, encerramento manual por admin ou atendente atribuído e reabertura reversível em até 24h desde a primeira mensagem do cliente), prazo de retorno, **rodízio automático entre atendentes online em horário comercial configurável** (padrão `10:00`–`22:00`) e gestão manual de responsáveis por administradores (incluindo assumir, atribuir a terceiros e responder sem alterar a atribuição).
 - **Respostas automáticas contextuais** no webhook do WhatsApp: menu de boas-vindas para novas conversas em horário comercial com atendentes online, aviso de indisponibilidade fora do horário ou sem atendentes online, e vínculo automático de etiquetas cujo nome corresponda à opção respondida pelo cliente.
 - **Contatos e etiquetas**, com identificação do contato pelo telefone (E.164).
 - **Notas internas** por conversa, nunca enviadas ao WhatsApp.

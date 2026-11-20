@@ -3,10 +3,12 @@ import { labelStyle } from '../labelColors.js';
 import {
   ArrowLeft,
   Building2,
+  CheckCircle2,
   MoreHorizontal,
   Paperclip,
   Phone,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Tag,
@@ -21,6 +23,7 @@ import {
   createConversation,
   getConversation,
   getConversationAnnotations,
+  getConversationAttendances,
   getConversationLabels,
   getConversationMessages,
   getConversations,
@@ -30,6 +33,7 @@ import {
   openAttendance,
   searchConversations,
   sendMessage,
+  updateAttendanceStatus,
 } from '../api.ts';
 
 function displayDate(value) {
@@ -46,6 +50,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
   const [annotations, setAnnotations] = useState([]);
   const [labels, setLabels] = useState([]);
   const [teamUsers, setTeamUsers] = useState([]);
+  const [latestAttendance, setLatestAttendance] = useState(null);
   const [conversationLabels, setConversationLabels] = useState([]);
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -131,12 +136,14 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
       setMessages([]);
       setAnnotations([]);
       setConversationLabels([]);
+      setLatestAttendance(null);
       return undefined;
     }
 
     setMessages([]);
     setAnnotations([]);
     setConversationLabels([]);
+    setLatestAttendance(null);
     setError('');
     let active = true;
 
@@ -145,14 +152,16 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
       getConversationMessages(selectedId),
       getConversationAnnotations(selectedId),
       getConversationLabels(selectedId),
+      getConversationAttendances(selectedId, 1, 5),
     ])
-      .then(async ([conversationResult, messagePage, annotationPage, labelResult]) => {
+      .then(async ([conversationResult, messagePage, annotationPage, labelResult, attendancePage]) => {
         if (!active) return;
         const freshConversation = conversationResult.data;
         setSelected((current) => (current?.id_conversa === freshConversation.id_conversa ? freshConversation : current));
         setConversations((list) => list.map((item) => (
           item.id_conversa === freshConversation.id_conversa ? freshConversation : item
         )));
+        setLatestAttendance(attendancePage.data[0] ?? null);
         let loadedMessages = messagePage.data;
         if (pendingMessageId !== null && !loadedMessages.some(
           (message) => String(message.id_mensagem) === String(pendingMessageId),
@@ -269,11 +278,49 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
   }
 
   async function refreshSelectedConversation(conversationId) {
-    const updated = (await getConversation(conversationId)).data;
+    const [conversationResult, attendancePage] = await Promise.all([
+      getConversation(conversationId),
+      getConversationAttendances(conversationId, 1, 5),
+    ]);
+    const updated = conversationResult.data;
     setSelected(updated);
+    setLatestAttendance(attendancePage.data[0] ?? null);
     setConversations((list) => list.map((item) => (
       item.id_conversa === updated.id_conversa ? updated : item
     )));
+  }
+
+  async function handleCloseAttendance() {
+    const attendanceId = selected?.atendimento_aberto?.id_atendimento;
+    if (!selected || !attendanceId) return;
+    if (!window.confirm('Deseja encerrar este atendimento? Ele poderá ser reaberto em até 24h desde a primeira mensagem do cliente.')) {
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await updateAttendanceStatus(attendanceId, 'closed');
+      await refreshSelectedConversation(selected.id_conversa);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReopenAttendance() {
+    const attendanceId = latestAttendance?.id_atendimento;
+    if (!selected || !attendanceId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await updateAttendanceStatus(attendanceId, 'open');
+      await refreshSelectedConversation(selected.id_conversa);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleAssignUser(targetUserId) {
@@ -526,8 +573,41 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
                 </div>
                 <h3>{selected.nome || selected.telefone}</h3>
                 <span className="status-badge">
-                  {selected.atendimento_aberto?.status || 'Sem atendimento ativo'}
+                  {selected.atendimento_aberto?.status === 'open'
+                    ? 'Em atendimento'
+                    : latestAttendance?.status === 'closed'
+                      ? 'Atendimento encerrado'
+                      : 'Sem atendimento ativo'}
                 </span>
+                {selected.atendimento_aberto?.id_atendimento && (
+                  isAdmin || selected.responsaveis_ativos?.some(
+                    (assignment) => assignment.FK_USUARIO_id_usuario === user?.id_usuario,
+                  )
+                ) && (
+                  <button
+                    type="button"
+                    className="attendance-action close"
+                    disabled={busy}
+                    onClick={handleCloseAttendance}
+                  >
+                    <CheckCircle2 size={15} /> Encerrar atendimento
+                  </button>
+                )}
+                {!selected.atendimento_aberto && latestAttendance?.status === 'closed' && (
+                  <div className="reopen-block">
+                    <button
+                      type="button"
+                      className="attendance-action reopen"
+                      disabled={busy}
+                      onClick={handleReopenAttendance}
+                    >
+                      <RotateCcw size={15} /> Reabrir atendimento
+                    </button>
+                    <small className="empty-inline">
+                      Reversível em até 24h da 1ª mensagem do cliente.
+                    </small>
+                  </div>
+                )}
               </div>
               <div className="customer-details">
                 <div>

@@ -2484,3 +2484,46 @@ th {
   min-width: 32px;
   text-align: right;
 }
+
+
+/* Encerramento e reabertura de atendimento */
+.attendance-action {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.attendance-action.close {
+  background: #fef3f2;
+  color: #b42318;
+  border-color: #fecdca;
+}
+
+.attendance-action.close:hover:not(:disabled) {
+  background: #fee4e2;
+}
+
+.attendance-action.reopen {
+  background: #ecfdf3;
+  color: #067647;
+  border-color: #abefc6;
+}
+
+.attendance-action.reopen:hover:not(:disabled) {
+  background: #dcfae6;
+}
+
+.reopen-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}

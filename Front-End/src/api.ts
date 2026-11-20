@@ -20,6 +20,16 @@ export interface Assignment {
   FK_ATENDIMENTO_id_atendimento: number;
 }
 
+export interface Attendance {
+  id_atendimento: number;
+  status: string;
+  iniciado_em: string;
+  encerrado_em: string | null;
+  prazo_retorno: string | null;
+  FK_CONVERSA_id_conversa: number;
+  responsaveis_ativos?: Assignment[];
+}
+
 export interface Conversation {
   id_conversa: number;
   telefone: string;
@@ -166,7 +176,7 @@ async function request<T>(
       401: 'Sua sessão expirou. Entre novamente.',
       403: 'Seu perfil não tem permissão para realizar esta ação (admin ou atendente).',
       404: 'O recurso ou a conversa não foi encontrado.',
-      409: 'Conflito no atendimento. Atualize a conversa e tente novamente.',
+      409: payload?.error ?? 'Conflito no atendimento. Atualize a conversa e tente novamente.',
       502: 'A integração com o WhatsApp/Meta está indisponível no momento.',
       503: 'A integração com o WhatsApp/Meta está indisponível no momento.',
     };
@@ -215,6 +225,17 @@ export function openAttendance(conversationId: number): Promise<{ data: { id_ate
     `/api/conversas/${conversationId}/atendimentos`,
     { method: 'POST', body: JSON.stringify({}) },
   );
+}
+
+export function getConversationAttendances(conversationId: number, page = 1, limit = 5): Promise<Page<Attendance>> {
+  return request<Page<Attendance>>(`/api/conversas/${conversationId}/atendimentos?${queryPage(page, limit)}`);
+}
+
+export function updateAttendanceStatus(attendanceId: number, status: 'open' | 'closed'): Promise<void> {
+  return request<void>(`/api/atendimentos/${attendanceId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
 }
 
 export function addAssignment(attendanceId: number, usuarioId: number): Promise<{ data: Assignment } | undefined> {
