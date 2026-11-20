@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { getPendingAlerts } from '../api.ts';
 
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 15_000;
 const MAX_BACKOFF_MS = 5 * 60_000;
+export const ALERTS_REFRESH_EVENT = 'inablink:alerts-refresh';
 
 function waitingLabel(minutes) {
   if (minutes < 1) return 'agora';
@@ -34,7 +35,7 @@ export default function NotificationBell({ onOpenConversation, onCountChange }) 
     }
   }, []);
 
-  // Atualiza a cada minuto; se falhar, espera mais a cada tentativa.
+  // Atualiza periodicamente e imediatamente quando ocorrer resposta/encerramento ou retorno à aba.
   useEffect(() => {
     let active = true;
     let timer;
@@ -49,9 +50,21 @@ export default function NotificationBell({ onOpenConversation, onCountChange }) 
     }
     tick();
 
+    const handleRefresh = () => {
+      if (active) load();
+    };
+    const handleVisibility = () => {
+      if (active && document.visibilityState === 'visible') load();
+    };
+
+    window.addEventListener(ALERTS_REFRESH_EVENT, handleRefresh);
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       active = false;
       clearTimeout(timer);
+      window.removeEventListener(ALERTS_REFRESH_EVENT, handleRefresh);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [load]);
 
