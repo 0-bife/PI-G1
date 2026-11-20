@@ -17,6 +17,14 @@ npm install
 npm run dev
 ```
 
+## GitHub Pages
+
+O workflow `.github/workflows/deploy-pages.yml` publica automaticamente o frontend
+quando há push na branch `main`. Em **Settings > Pages**, selecione **GitHub Actions**
+como fonte de build. Para apontar o frontend publicado para a API, crie a variável
+de repositório `VITE_API_BASE_URL` em **Settings > Secrets and variables > Actions >
+Variables** com a origem da API, sem `/api` no final.
+
 O token de acesso é guardado somente em `sessionStorage` com a chave `inablink.accessToken`. O cliente envia o Bearer Token nas rotas `/api/*`, interpreta `204 No Content` sem ler JSON e, em `401`, remove o token e retorna à tela de login.
 
 ## Uso na interface

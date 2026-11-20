@@ -16,6 +16,7 @@ import {
   assignByRotation
 } from './message-service.js';
 import { WhatsAppClient } from './whatsapp.js';
+import { ReportService } from './report-service.js';
 import { SettingsService } from './settings-service.js';
 
 function fail(message: string): Error & { status: number } {
@@ -78,6 +79,7 @@ export function createApp(
   const messages = new MessageService(db, whatsappClient, logger);
   const contacts = new ContactService(db);
   const conversations = new ConversationService(db);
+  const reports = new ReportService(db);
   const auth = new AuthService(db, config.JWT_SECRET ?? '');
   const isAdmin = (req: Request) => req.authenticatedUser?.perfil === 'admin';
   const scopeUserId = (req: Request) => (isAdmin(req) ? undefined : req.authenticatedUser?.id_usuario);
@@ -222,6 +224,9 @@ export function createApp(
         ...(typeof body.fuso_horario === 'string' ? { fuso_horario: body.fuso_horario } : {}),
       }) });
     } catch (error) {
+      if (error instanceof Error && typeof (error as unknown as Record<string, unknown>).statusCode === 'number') {
+        return res.status(502).json({ error: 'WhatsApp provider rejected the profile update.' });
+      }
       if (error instanceof Error) throw new RequestValidationError(error.message);
       throw error;
     }
@@ -268,31 +273,33 @@ export function createApp(
       perfil: body.perfil,
       ativo: body.ativo,
     });
-    app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
-      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
-      const id = positiveInteger(req.params.id, 'id');
-      const body = isRecord(req.body) ? req.body : {};
-      if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
-        throw new RequestValidationError('Informe somente nova_senha.');
-      }
-      const target = await auth.getUser(id);
-      if (!target) return res.status(404).json({ error: 'User not found.' });
-      if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
-        throw new AuthorizationError();
-      }
-      await auth.resetPassword(id, body.nova_senha);
-      return res.status(204).end();
-    });
-    app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
-      if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
-      const id = positiveInteger(req.params.id, 'id');
-      if (id === req.authenticatedUser.id_usuario) {
-        throw new RequestValidationError('O usuário logado não pode ser desativado.');
-      }
-      const updated = await auth.updateUser(id, { ativo: false });
-      if (!updated) return res.status(404).json({ error: 'User not found.' });
-      return res.status(204).end();
-    });
+    if (!updated) return res.status(404).json({ error: 'User not found.' });
+    return res.status(204).end();
+  });
+
+  app.patch('/api/usuarios/:id/password', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const id = positiveInteger(req.params.id, 'id');
+    const body = isRecord(req.body) ? req.body : {};
+    if (Object.keys(body).length !== 1 || typeof body.nova_senha !== 'string') {
+      throw new RequestValidationError('Informe somente nova_senha.');
+    }
+    const target = await auth.getUser(id);
+    if (!target) return res.status(404).json({ error: 'User not found.' });
+    if (target.perfil === 'admin' && id !== req.authenticatedUser.id_usuario) {
+      throw new AuthorizationError();
+    }
+    await auth.resetPassword(id, body.nova_senha);
+    return res.status(204).end();
+  });
+
+  app.delete('/api/usuarios/:id', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') throw new AuthorizationError();
+    const id = positiveInteger(req.params.id, 'id');
+    if (id === req.authenticatedUser.id_usuario) {
+      throw new RequestValidationError('O usuário logado não pode ser desativado.');
+    }
+    const updated = await auth.updateUser(id, { ativo: false });
     if (!updated) return res.status(404).json({ error: 'User not found.' });
     return res.status(204).end();
   });
@@ -756,8 +763,19 @@ export function createApp(
     }
   });
 
-  app.use('/api', createAnalyticsRouter(db));
+   // Relatórios gerais do sistema (acesso exclusivo de administradores).
+  app.get('/api/relatorios', async (req: Request, res: Response) => {
+    if (req.authenticatedUser?.perfil !== 'admin') {
+      throw new AuthorizationError();
+    }
 
+    const days = positiveInteger(req.query.dias ?? 30, 'dias', 90);
+    const data = await reports.getReport(days);
+
+    return res.json({ data });
+  });
+
+  app.use('/api', createAnalyticsRouter(db));
   app.use((_req: Request, res: Response) => res.status(404).json({ error: 'Route not found.' }));
   app.use((error: unknown, _req: Request, res: Response, _next: (error?: unknown) => void) => {
     const requestError = errorInfo(error);
