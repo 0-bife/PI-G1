@@ -419,3 +419,37 @@ export function getDashboardMetrics(filters: DashboardFilters = {}): Promise<{ d
   const qs = params.toString();
   return request<{ data: DashboardMetrics }>(`/api/dashboard/atendimentos${qs ? `?${qs}` : ''}`);
 }
+
+export interface AttendanceReportFilters {
+  dataInicial: string;
+  dataFinal: string;
+  usuarioId?: number;
+  etiquetaId?: number;
+}
+
+export interface AttendanceReportItem {
+  posicao: number;
+  id: number;
+  nome: string;
+  perfil: 'admin' | 'atendente';
+  conversasTotais: number;
+  conversasAtivas: number;
+  atendimentosRealizados: number;
+  pendentes: number;
+  tempoMedioRespostaSegundos: number;
+  tempoMedioAtendimentoSegundos: number;
+  taxaConclusaoPercentual: number;
+  slaPercentual: number;
+}
+
+export function getAttendanceReport(
+  filters: AttendanceReportFilters,
+): Promise<{ data: AttendanceReportItem[] }> {
+  const params = new URLSearchParams({
+    dataInicial: filters.dataInicial,
+    dataFinal: filters.dataFinal,
+  });
+  if (filters.usuarioId) params.set('usuarioId', String(filters.usuarioId));
+  if (filters.etiquetaId) params.set('etiquetaId', String(filters.etiquetaId));
+  return request<{ data: AttendanceReportItem[] }>(`/api/relatorios/atendimentos?${params.toString()}`);
+}

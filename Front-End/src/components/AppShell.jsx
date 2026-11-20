@@ -96,7 +96,7 @@ export default function AppShell({ page, setPage, user, onLogout, onOpenConversa
         </div>
         <nav>
           {navItems
-            .filter(([label]) => label !== "Dashboard" || user?.perfil === "admin")
+            .filter(([label]) => (label !== "Dashboard" && label !== "Relatórios") || user?.perfil === "admin")
             .map(([label, Icon]) => (
             <button
               key={label}
