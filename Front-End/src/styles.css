@@ -2319,3 +2319,168 @@ th {
   resize: vertical;
   background: var(--white);
 }
+
+/* Dashboard administrativo: filtros, métricas e gráficos de seção de círculo */
+.dashboard-filters {
+  padding: 18px 22px;
+  margin-bottom: 18px;
+}
+
+.filters-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.filters-title .link-btn {
+  margin-left: auto;
+}
+
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.filters-grid label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.filters-grid select,
+.filters-grid input[type="date"] {
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+  font-weight: 400;
+}
+
+.dashboard-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.dashboard-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.donut-card {
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.donut-head h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.donut-head p {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.donut-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.donut-visual {
+  position: relative;
+  width: 164px;
+  height: 164px;
+  flex-shrink: 0;
+}
+
+.donut-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  pointer-events: none;
+}
+
+.donut-center strong {
+  font-size: 18px;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.donut-center span {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 140px;
+  display: grid;
+  gap: 8px;
+}
+
+.donut-legend li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legend-name {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-legend strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.donut-legend small {
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 32px;
+  text-align: right;
+}

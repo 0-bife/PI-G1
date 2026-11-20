@@ -95,7 +95,9 @@ export default function AppShell({ page, setPage, user, onLogout, onOpenConversa
           </button>
         </div>
         <nav>
-          {navItems.map(([label, Icon]) => (
+          {navItems
+            .filter(([label]) => label !== "Dashboard" || user?.perfil === "admin")
+            .map(([label, Icon]) => (
             <button
               key={label}
               className={`nav-item ${page === label ? "active" : ""}`}

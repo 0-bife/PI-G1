@@ -20,8 +20,19 @@ interface DashboardRow extends RowDataPacket {
 
 interface TotalsRow extends RowDataPacket {
   total: number | string;
+  conversas_totais?: number | string;
+  conversas_ativas?: number | string;
   atendimentos_realizados: number | string;
   pendentes: number | string;
+  tempo_medio_atendimento_segundos?: number | string | null;
+  tempo_medio_resposta_segundos?: number | string | null;
+}
+
+export interface DashboardFilters {
+  usuarioId?: number;
+  dataInicial?: string;
+  dataFinal?: string;
+  etiquetaId?: number;
 }
 
 interface AlertRow extends RowDataPacket {
@@ -147,25 +158,130 @@ export class AnalyticsService {
     }));
   }
 
-  async attendanceDashboard(usuarioId?: number) {
-    const attendanceFilter = usuarioId === undefined
-      ? ''
-      : `WHERE EXISTS (
-           SELECT 1 FROM ATRIBUICAO filtro
-           WHERE filtro.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
-             AND filtro.FK_USUARIO_id_usuario = ?
-         )`;
-    const rankingFilter = usuarioId === undefined ? '' : 'AND u.id_usuario = ?';
-    const totalsValues = usuarioId === undefined ? [] : [usuarioId];
-    const rankingValues = usuarioId === undefined ? [] : [usuarioId];
+  async attendanceDashboard(filters: DashboardFilters = {}) {
+    const { usuarioId, dataInicial, dataFinal, etiquetaId } = filters;
+
+    const attendanceConditions: string[] = [];
+    const totalsValues: (string | number)[] = [];
+
+    if (usuarioId !== undefined) {
+      attendanceConditions.push(`EXISTS (
+        SELECT 1 FROM ATRIBUICAO filtro
+        WHERE filtro.FK_ATENDIMENTO_id_atendimento = a.id_atendimento
+          AND filtro.FK_USUARIO_id_usuario = ?
+      )`);
+      totalsValues.push(usuarioId);
+    }
+    if (dataInicial !== undefined) {
+      attendanceConditions.push('a.iniciado_em >= ?');
+      totalsValues.push(dataInicial);
+    }
+    if (dataFinal !== undefined) {
+      attendanceConditions.push('a.iniciado_em < DATE_ADD(?, INTERVAL 1 DAY)');
+      totalsValues.push(dataFinal);
+    }
+    if (etiquetaId !== undefined) {
+      attendanceConditions.push(`EXISTS (
+        SELECT 1 FROM marca m_etq
+        WHERE m_etq.fk_CONVERSA_id_conversa = a.FK_CONVERSA_id_conversa
+          AND m_etq.fk_ETIQUETA_id_etiqueta = ?
+      )`);
+      totalsValues.push(etiquetaId);
+    }
+
+    const attendanceWhere = attendanceConditions.length
+      ? `WHERE ${attendanceConditions.join(' AND ')}`
+      : '';
+
+    const rankingAttendanceConditions: string[] = [];
+    const rankingValues: (string | number)[] = [];
+    if (dataInicial !== undefined) {
+      rankingAttendanceConditions.push('a.iniciado_em >= ?');
+      rankingValues.push(dataInicial);
+    }
+    if (dataFinal !== undefined) {
+      rankingAttendanceConditions.push('a.iniciado_em < DATE_ADD(?, INTERVAL 1 DAY)');
+      rankingValues.push(dataFinal);
+    }
+    if (etiquetaId !== undefined) {
+      rankingAttendanceConditions.push(`EXISTS (
+        SELECT 1 FROM marca m_etq
+        WHERE m_etq.fk_CONVERSA_id_conversa = a.FK_CONVERSA_id_conversa
+          AND m_etq.fk_ETIQUETA_id_etiqueta = ?
+      )`);
+      rankingValues.push(etiquetaId);
+    }
+    const rankingJoinFilter = rankingAttendanceConditions.length
+      ? `AND ${rankingAttendanceConditions.join(' AND ')}`
+      : '';
+    const rankingUserFilter = usuarioId === undefined ? '' : 'AND u.id_usuario = ?';
+    if (usuarioId !== undefined) rankingValues.push(usuarioId);
+
     const [[totalsRows], [rankingRows]] = await Promise.all([
       this.db.execute<TotalsRow[]>(
         `SELECT COUNT(DISTINCT a.id_atendimento) AS total,
+                COUNT(DISTINCT a.FK_CONVERSA_id_conversa) AS conversas_totais,
+                COUNT(DISTINCT CASE WHEN a.encerrado_em IS NULL
+                                    THEN a.FK_CONVERSA_id_conversa END) AS conversas_ativas,
                 COUNT(DISTINCT CASE WHEN a.encerrado_em IS NOT NULL
                                     THEN a.id_atendimento END) AS atendimentos_realizados,
                 COUNT(DISTINCT CASE WHEN a.encerrado_em IS NULL
-                                    THEN a.id_atendimento END) AS pendentes
-         FROM ATENDIMENTO a ${attendanceFilter}`,
+                                    THEN a.id_atendimento END) AS pendentes,
+                COALESCE(ROUND(AVG(CASE WHEN a.encerrado_em IS NOT NULL
+                  THEN TIMESTAMPDIFF(SECOND, a.iniciado_em, a.encerrado_em)
+                END), 2), 0) AS tempo_medio_atendimento_segundos,
+                COALESCE(ROUND(AVG(CASE
+                  WHEN respostas.msg_cliente_apos_bot IS NOT NULL
+                   AND respostas.primeira_resposta_atendente IS NOT NULL
+                  THEN TIMESTAMPDIFF(SECOND, respostas.msg_cliente_apos_bot,
+                                     respostas.primeira_resposta_atendente)
+                END), 2), 0) AS tempo_medio_resposta_segundos
+         FROM ATENDIMENTO a
+         LEFT JOIN (
+           SELECT cliente_pos_bot.id_atendimento,
+                  cliente_pos_bot.msg_cliente_apos_bot,
+                  MIN(resposta.data_hora) AS primeira_resposta_atendente
+           FROM (
+             SELECT bot_inicial.id_atendimento,
+                    bot_inicial.FK_CONVERSA_id_conversa,
+                    bot_inicial.iniciado_em,
+                    bot_inicial.encerrado_em,
+                    MIN(CASE
+                      WHEN mc.origem = 'contato'
+                       AND (bot_inicial.primeira_bot IS NULL OR mc.data_hora >= bot_inicial.primeira_bot)
+                      THEN mc.data_hora
+                    END) AS msg_cliente_apos_bot
+             FROM (
+               SELECT a2.id_atendimento,
+                      a2.FK_CONVERSA_id_conversa,
+                      a2.iniciado_em,
+                      a2.encerrado_em,
+                      MIN(CASE WHEN mb.origem = 'chatbot' THEN mb.data_hora END) AS primeira_bot
+               FROM ATENDIMENTO a2
+               LEFT JOIN MENSAGEM mb
+                 ON mb.FK_CONVERSA_id_conversa = a2.FK_CONVERSA_id_conversa
+                AND mb.data_hora >= a2.iniciado_em
+                AND (a2.encerrado_em IS NULL OR mb.data_hora <= a2.encerrado_em)
+               GROUP BY a2.id_atendimento, a2.FK_CONVERSA_id_conversa,
+                        a2.iniciado_em, a2.encerrado_em
+             ) bot_inicial
+             LEFT JOIN MENSAGEM mc
+               ON mc.FK_CONVERSA_id_conversa = bot_inicial.FK_CONVERSA_id_conversa
+              AND mc.data_hora >= bot_inicial.iniciado_em
+              AND (bot_inicial.encerrado_em IS NULL OR mc.data_hora <= bot_inicial.encerrado_em)
+             GROUP BY bot_inicial.id_atendimento, bot_inicial.FK_CONVERSA_id_conversa,
+                      bot_inicial.iniciado_em, bot_inicial.encerrado_em
+           ) cliente_pos_bot
+           LEFT JOIN MENSAGEM resposta
+             ON resposta.FK_CONVERSA_id_conversa = cliente_pos_bot.FK_CONVERSA_id_conversa
+            AND resposta.origem = 'usuario'
+            AND resposta.data_hora >= cliente_pos_bot.msg_cliente_apos_bot
+            AND resposta.data_hora >= cliente_pos_bot.iniciado_em
+            AND (cliente_pos_bot.encerrado_em IS NULL
+                 OR resposta.data_hora <= cliente_pos_bot.encerrado_em)
+           GROUP BY cliente_pos_bot.id_atendimento, cliente_pos_bot.msg_cliente_apos_bot
+         ) respostas ON respostas.id_atendimento = a.id_atendimento
+         ${attendanceWhere}`,
         totalsValues,
       ),
       this.db.execute<DashboardRow[]>(
@@ -177,7 +293,8 @@ export class AnalyticsService {
            ON atr.FK_USUARIO_id_usuario = u.id_usuario
          LEFT JOIN ATENDIMENTO a
            ON a.id_atendimento = atr.FK_ATENDIMENTO_id_atendimento
-         WHERE u.perfil = 'atendente' ${rankingFilter}
+           ${rankingJoinFilter}
+         WHERE u.perfil = 'atendente' ${rankingUserFilter}
          GROUP BY u.id_usuario, u.nome
          ORDER BY atendimentos_realizados DESC, u.nome, u.id_usuario`,
         rankingValues,
@@ -185,11 +302,21 @@ export class AnalyticsService {
     ]);
 
     const totals = totalsRows[0];
+    const total = numberValue(totals?.total ?? 0);
+    const pendentes = numberValue(totals?.pendentes ?? 0);
     return {
       totais: {
-        total: numberValue(totals?.total ?? 0),
+        total,
+        conversasTotais: totals?.conversas_totais !== undefined
+          ? numberValue(totals.conversas_totais)
+          : total,
+        conversasAtivas: totals?.conversas_ativas !== undefined
+          ? numberValue(totals.conversas_ativas)
+          : pendentes,
         atendimentosRealizados: numberValue(totals?.atendimentos_realizados ?? 0),
-        pendentes: numberValue(totals?.pendentes ?? 0),
+        pendentes,
+        tempoMedioAtendimentoSegundos: numberValue(totals?.tempo_medio_atendimento_segundos ?? 0),
+        tempoMedioRespostaSegundos: numberValue(totals?.tempo_medio_resposta_segundos ?? 0),
       },
       ranking: rankingRows.map((row) => ({
         id: Number(row.id),

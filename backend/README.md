@@ -194,10 +194,15 @@ O tempo médio de resposta é calculado entre a primeira mensagem do contato e a
 
 ### `GET /api/dashboard/atendimentos`
 
-Administradores podem filtrar por `usuarioId`; atendentes sempre veem somente os atendimentos atribuídos ao próprio ID, mesmo se tentarem informar outro. Sem filtro de data, os totais e o ranking consideram todo o histórico.
+Acesso exclusivo para **administradores** (`403` para atendentes). Aceita filtros opcionais:
+- `usuarioId`: inteiro positivo (atendimentos atribuídos ao usuário);
+- `dataInicial` e `dataFinal`: datas inclusivas no formato `YYYY-MM-DD` (`dataInicial <= dataFinal`);
+- `etiquetaId`: inteiro positivo (conversas marcadas com a etiqueta na tabela `marca`).
+
+Sem filtros, os totais e o ranking consideram todo o histórico.
 
 ```http
-GET /api/dashboard/atendimentos?usuarioId=45
+GET /api/dashboard/atendimentos?usuarioId=45&dataInicial=2026-10-01&dataFinal=2026-10-31&etiquetaId=2
 Authorization: Bearer <token>
 ```
 
@@ -208,8 +213,12 @@ Resposta `200`:
   "data": {
     "totais": {
       "total": 21,
+      "conversasTotais": 18,
+      "conversasAtivas": 3,
       "atendimentosRealizados": 18,
-      "pendentes": 3
+      "pendentes": 3,
+      "tempoMedioAtendimentoSegundos": 1840,
+      "tempoMedioRespostaSegundos": 245.5
     },
     "ranking": [
       { "id": 45, "nome": "Ana", "atendimentosRealizados": 18 }
@@ -218,7 +227,7 @@ Resposta `200`:
 }
 ```
 
-O ranking é ordenado por atendimentos realizados em ordem decrescente, com desempate pelo nome e ID. Totais são contagens distintas de atendimentos; no filtro individual contam atendimentos atribuídos ao usuário.
+O ranking é ordenado por atendimentos realizados em ordem decrescente, com desempate pelo nome e ID. `conversasTotais` e `conversasAtivas` contam conversas distintas no filtro (abertas quando `encerrado_em IS NULL`). `tempoMedioAtendimentoSegundos` considera atendimentos encerrados e `tempoMedioRespostaSegundos` mede o intervalo entre a primeira mensagem do cliente após a mensagem automática inicial (`origem = 'chatbot'`, quando existir no atendimento) e a primeira resposta de atendente (`origem = 'usuario'`).
 
 ### `GET /api/alertas/atendimentos`
 
