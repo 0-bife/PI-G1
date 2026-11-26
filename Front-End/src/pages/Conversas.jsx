@@ -36,6 +36,14 @@ import {
   updateAttendanceStatus,
 } from '../api.ts';
 
+import { ALERTS_REFRESH_EVENT } from '../components/NotificationBell.jsx';
+
+const POLL_INTERVAL_MS = 5_000;
+
+function notifyAlertsRefresh() {
+  window.dispatchEvent(new Event(ALERTS_REFRESH_EVENT));
+}
+
 function displayDate(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -149,7 +157,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
 
     Promise.all([
       getConversation(selectedId),
-      getConversationMessages(selectedId),
+      getConversationMessages(selectedId, 1, 100),
       getConversationAnnotations(selectedId),
       getConversationLabels(selectedId),
       getConversationAttendances(selectedId, 1, 5),
@@ -183,6 +191,78 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
       active = false;
     };
   }, [selectedId, pendingMessageId]);
+
+  // Polling silencioso para atualizar conversas, mensagens recebidas pelo webhook,
+  // etiquetas automáticas e status do atendimento sem recarregar a página.
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+
+    async function syncLiveUpdates() {
+      if (!active || inFlight || document.visibilityState !== 'visible') return;
+      inFlight = true;
+      try {
+        const conversationPage = await getConversations(1, 100);
+        if (!active) return;
+
+        setConversations((prev) => {
+          const prevTop = prev[0]?.ultima_mensagem_em;
+          const nextTop = conversationPage.data[0]?.ultima_mensagem_em;
+          if (prev.length !== conversationPage.data.length || prevTop !== nextTop) {
+            notifyAlertsRefresh();
+          }
+          return conversationPage.data;
+        });
+
+        if (selectedId !== undefined) {
+          const matched = conversationPage.data.find((item) => item.id_conversa === selectedId);
+          if (matched) setSelected(matched);
+
+          const [messagePage, labelResult, attendancePage] = await Promise.all([
+            getConversationMessages(selectedId, 1, 100),
+            getConversationLabels(selectedId),
+            getConversationAttendances(selectedId, 1, 5),
+          ]);
+          if (!active) return;
+
+          setConversationLabels(labelResult.data);
+          setLatestAttendance(attendancePage.data[0] ?? null);
+          setMessages((prev) => {
+            const next = messagePage.data;
+            const prevLastId = prev.at(-1)?.id_mensagem;
+            const nextLastId = next.at(-1)?.id_mensagem;
+            const hasNewMessages = next.length !== prev.length || nextLastId !== prevLastId;
+            if (hasNewMessages) {
+              notifyAlertsRefresh();
+              requestAnimationFrame(() => {
+                const container = messagesRef.current;
+                if (container) {
+                  container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                }
+              });
+            }
+            return next;
+          });
+        }
+      } catch {
+        // Falha transitória no polling silencioso não interrompe o uso da tela.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const intervalId = window.setInterval(syncLiveUpdates, POLL_INTERVAL_MS);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') syncLiveUpdates();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [selectedId]);
 
   const filteredConversations = useMemo(() => {
     if (searchTerm.trim()) return searchResults?.conversas ?? [];
@@ -232,6 +312,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
         data_hora: new Date().toISOString(),
         nome_usuario: user?.nome ?? null,
       }]);
+      notifyAlertsRefresh();
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -301,6 +382,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
     try {
       await updateAttendanceStatus(attendanceId, 'closed');
       await refreshSelectedConversation(selected.id_conversa);
+      notifyAlertsRefresh();
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -316,6 +398,7 @@ export default function Conversations({ user, focusId, onFocusHandled }) {
     try {
       await updateAttendanceStatus(attendanceId, 'open');
       await refreshSelectedConversation(selected.id_conversa);
+      notifyAlertsRefresh();
     } catch (requestError) {
       setError(requestError.message);
     } finally {
