@@ -1334,39 +1334,7 @@ th {
   stroke: #b9b3a1;
   stroke-width: 2;
 }
-.rank {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: 15px;
-}
-.rank > b {
-  font-size: 10px;
-  color: #9a978d;
-}
-.rank progress {
-  width: 20px;
-}
-.rank span {
-  width: 75px;
-}
-.progress {
-  flex: 1;
-  height: 6px;
-  border-radius: 99px;
-  background: #e5e1d4;
-  overflow: hidden;
-  margin-left: 50px;
-}
-.progress i {
-  display: block;
-  height: 100%;
-  background: var(--accent-dark);
-  border-radius: 99px;
-  width: 30px;
-}
+
 .switch input {
   display: none;
 }
@@ -2530,6 +2498,36 @@ th {
 
 
 /* Relatórios: ranking de atendentes e usuários */
+.rank {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+.rank > b {
+  font-size: 12px;
+  color: #9a978d;
+  min-width: 24px;
+}
+
+.progress {
+  flex: 0 0 200px;
+  height: 6px;
+  border-radius: 99px;
+  background: #e5e1d4;
+  overflow: hidden;
+  margin: 0;
+}
+.progress i {
+  display: block;
+  height: 100%;
+  background: var(--accent-dark);
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+
 .ranking-panel {
   padding: 20px 24px;
 }
@@ -2548,10 +2546,17 @@ th {
 }
 
 .rank-user {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.rank strong {
+  min-width: 20px;
+  text-align: right;
+  font-size: 14px;
 }
 
 .role-pill {
